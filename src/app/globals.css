@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  @apply bg-ink-950 text-ink-200 antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: var(--font-sans), system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* Horários e valores em colunas: sem numerais tabulares a lista "dança". */
+time,
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-ink-700;
+}
+
+@layer components {
+  /* ---------------------------------------------------------- superfícies */
+  .card {
+    @apply rounded-2xl border border-ink-800 bg-ink-900;
+  }
+
+  /* Linha de 1px que separa sem pesar: substitui a maioria das bordas. */
+  .rule {
+    @apply border-t border-ink-800;
+  }
+
+  /* --------------------------------------------------------------- tipos */
+  .display {
+    font-family: var(--font-display), Georgia, serif;
+    @apply font-light;
+  }
+
+  /* Micro-rótulo em caixa alta, bem espaçado — organiza sem decorar. */
+  .eyebrow {
+    @apply text-[11px] font-medium uppercase tracking-widest text-ink-400;
+  }
+
+  /* --------------------------------------------------------------- ações */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium
+           transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-bone text-ink-950 hover:bg-bone-soft;
+  }
+  .btn-ghost {
+    @apply btn border border-ink-800 bg-transparent text-ink-200 hover:border-ink-700 hover:bg-ink-900;
+  }
+  .btn-danger {
+    @apply btn border border-state-bad/40 bg-transparent text-state-bad hover:bg-state-bad/10;
+  }
+
+  /* -------------------------------------------------------------- campos */
+  .input {
+    @apply w-full rounded-xl border border-ink-800 bg-ink-900 px-4 py-3 text-[15px] text-ink-100
+           outline-none transition-colors placeholder:text-ink-500
+           focus:border-ink-600 focus:bg-ink-850;
+  }
+  .label {
+    @apply eyebrow mb-2 block;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border border-ink-800 px-2.5 py-0.5 text-[11px] font-medium;
+  }
+
+  /* ---------------------------------------------------------------- abas */
+  .tab {
+    @apply relative whitespace-nowrap px-1 pb-2 text-[13px] tracking-wide text-ink-400 transition-colors
+           hover:text-ink-200;
+  }
+  .tab-active {
+    @apply text-ink-100;
+  }
+  .tab-active::after {
+    content: '';
+    @apply absolute inset-x-0 bottom-0 h-px origin-left bg-brand-500 animate-draw-x;
+  }
+
+  /* ------------------------------------------------------------ horários */
+  .slot {
+    @apply rounded-lg border border-ink-800 py-2.5 text-sm text-ink-200 transition-colors tnum
+           hover:border-ink-600 hover:text-ink-100;
+  }
+  .slot-active {
+    @apply border-brand-500 bg-brand-500/10 text-ink-100;
+  }
+
+  .scroll-x {
+    @apply flex gap-5 overflow-x-auto;
+    scrollbar-width: none;
+  }
+  .scroll-x::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Foco visível para quem navega no teclado — sem poluir o clique do mouse. */
+:focus-visible {
+  outline: 1px solid theme('colors.brand.500');
+  outline-offset: 2px;
+}
+
+.safe-bottom {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
