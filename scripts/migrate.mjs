@@ -1,8 +1,17 @@
 #!/usr/bin/env node
 /**
  * Runner de migrations. Cada arquivo .sql de database/migrations roda uma vez
- * e fica registrado em schema_migrations. `--reset` derruba o schema publico
- * antes (so use em dev).
+ * e fica registrado em schema_migrations.
+ *
+ * Mora no schema de `DB_SCHEMA` (ou `SUPABASE_SCHEMA`), `public` por padrao.
+ * Isso existe porque um projeto Supabase costuma hospedar mais de um sistema
+ * da casa, e duas instalacoes em `public` colidem na primeira tabela de nome
+ * repetido -- `clients`, `payments` e `products` se repetem em todos.
+ *
+ * `--reset` derruba e recria **esse** schema. Antes ele fazia
+ * `DROP SCHEMA public CASCADE` fixo, o que num projeto compartilhado levava
+ * junto o sistema do vizinho: um comando de dev apagando dado de producao
+ * alheio, sem perguntar nada.
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -19,6 +28,12 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
+const SCHEMA = (process.env.DB_SCHEMA ?? process.env.SUPABASE_SCHEMA ?? 'public').trim();
+if (!/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(SCHEMA)) {
+  console.error(`DB_SCHEMA invalido: ${JSON.stringify(SCHEMA)}`);
+  process.exit(1);
+}
+
 const needsSsl = process.env.DATABASE_SSL !== 'false' && /sslmode=require|neon\.tech|supabase|render\.com/.test(DATABASE_URL);
 const client = new pg.Client({
   connectionString: DATABASE_URL,
@@ -29,9 +44,24 @@ async function main() {
   const reset = process.argv.includes('--reset');
   await client.connect();
 
+  if (SCHEMA !== 'public') {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS "${SCHEMA}"`);
+  }
+  // `public` e `extensions` no fim: e' onde moram gen_random_uuid e btree_gist,
+  // e sem eles o DEFAULT gen_random_uuid() das tabelas para de resolver. O
+  // Supabase poe as extensoes em `extensions`; num Postgres comum esse schema
+  // nao existe, e nome inexistente em search_path e' ignorado sem erro.
+  await client.query(`SET search_path TO "${SCHEMA}", public, extensions`);
+  console.log(`schema: ${SCHEMA}`);
+
   if (reset) {
-    console.log('--reset: recriando schema public');
-    await client.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+    if (process.env.NODE_ENV === 'production') {
+      console.error('--reset recusado: NODE_ENV=production. Isto apaga tudo.');
+      process.exit(1);
+    }
+    console.log(`--reset: recriando o schema ${SCHEMA}`);
+    await client.query(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE; CREATE SCHEMA "${SCHEMA}"`);
+    await client.query(`SET search_path TO "${SCHEMA}", public, extensions`);
   }
 
   await client.query(`

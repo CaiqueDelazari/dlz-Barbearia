@@ -42,6 +42,29 @@ export const env = {
     if (process.env.DATABASE_SSL === 'true') return true;
     return /sslmode=require|neon\.tech|supabase|render\.com|amazonaws/.test(url);
   },
+  /**
+   * Schema onde este sistema mora. Sem a variavel, `public` -- e o app se
+   * comporta exatamente como sempre, o que mantem reversivel quem ja subiu.
+   *
+   * Existe porque um projeto Supabase costuma hospedar mais de um sistema da
+   * DLZ (o Supabase cobra por projeto, e cada loja usa uma fracao do que um
+   * projeto entrega). Dois sistemas em `public` colidem na primeira tabela de
+   * nome repetido -- e `clients`, `payments` e `products` se repetem em todos.
+   *
+   * `SUPABASE_SCHEMA` e' aceito como sinonimo porque e' o nome que os outros
+   * projetos da casa ja usam; ter que lembrar de dois nomes e' como se erra.
+   */
+  get dbSchema() {
+    const bruto = (process.env.DB_SCHEMA ?? process.env.SUPABASE_SCHEMA ?? 'public').trim();
+    // O nome entra em SQL como identificador, entao nao pode ser texto livre.
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(bruto)) {
+      throw new Error(
+        `DB_SCHEMA invalido: ${JSON.stringify(bruto)}. ` +
+          'Use letras, numeros e _ , comecando por letra ou _ .'
+      );
+    }
+    return bruto;
+  },
   get jwtSecret() {
     return segredoForte('JWT_SECRET', required('JWT_SECRET'), 32);
   },

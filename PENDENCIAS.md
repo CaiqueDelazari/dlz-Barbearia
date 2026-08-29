@@ -17,13 +17,14 @@ Todo o fluxo de dinheiro foi testado com o provider `manual` (checkout simulado)
 assinatura `x-signature`, consulta na API antes de acreditar no status — mas **nenhuma
 transação real passou por ele**.
 
-⚠️ **Combinado em 2026-08-28: o Duda recebe pela Stone.** A Stone é onde o dinheiro cai,
-não uma integração — pagamento na maquininha do balcão é registrado como `card` e já
-funciona hoje (inclusive na venda avulsa). O gateway online só entra em cena se um dia se
-quiser cobrar o **sinal pela internet, antes do cliente vir**; aí o caminho da Stone é a
-Pagar.me, e o `MercadoPagoProvider` não serve — seria trocar o provider.
+Não há cliente definido ainda, então também não há gateway a escolher. Vale lembrar a
+distinção que já apareceu antes: **maquininha não é integração**. Pagamento no balcão se
+registra como `card` e já funciona hoje, inclusive na venda avulsa. O gateway online só
+entra em cena para cobrar o **sinal pela internet, antes de o cliente vir**.
 
-Enquanto isso não for decidido, `PAYMENT_PROVIDER=manual` é a configuração correta.
+Quando houver cliente, o provider sai da adquirente dele — quem usa Stone vai de Pagar.me,
+e aí o `MercadoPagoProvider` não serve. Até lá, `PAYMENT_PROVIDER=manual` é a configuração
+correta, e trocar de provider é o trabalho previsto, não um desvio.
 
 ### 2. WhatsApp e IA nunca enviaram nada — *não verificado*
 A fila de notificações funciona e está testada (as mensagens entram, saem da fila quando
@@ -34,14 +35,25 @@ Falta: parear uma sessão no bot Baileys, enviar uma confirmação de verdade, e
 rota `/api/v1/ai/chat` no bot para o atendimento automático (o trecho está no README).
 
 ### 3. Migrations nunca rodaram em Postgres gerenciado — *não verificado*
-As três migrations (`001_init`, `002_products`, `003_sales`) só foram exercitadas em
-Postgres 16 num container local. Em Supabase/Neon há dois pontos de atenção:
+As quatro migrations (`001_init`, `002_products`, `003_sales`, `004_refunds`) rodam limpas
+em Postgres 16 local, inclusive num schema próprio ao lado de outro sistema — testado em
+29/08/2026. **Isso não prova nada sobre Supabase/Neon**, e os dois pontos abaixo são
+exatamente os que diferem lá:
 
 - `CREATE EXTENSION btree_gist` — usado pela trava `excl_appt_overlap` contra double
-  booking. A migration já degrada com aviso se não puder criar, **mas aí some a última
-  camada de proteção**. Conferir se subiu.
+  booking. A migration degrada com aviso se não puder criar, **mas aí some a última
+  camada de proteção**. Depois de migrar, conferir que a trava existe:
+
+  ```sql
+  SELECT conname FROM pg_constraint WHERE conname = 'excl_appt_overlap';
+  ```
+
+  Sem linha de volta, dois clientes podem cair no mesmo horário do mesmo profissional.
 - `pg_advisory_xact_lock` sob PgBouncer em modo *transaction* — funciona, mas o pool
   precisa estar em modo transação, não statement.
+- No Supabase as extensões moram no schema `extensions`, fora do `public`. O `search_path`
+  do app e dos scripts já inclui os dois, mas se `gen_random_uuid()` der "function does not
+  exist", é aí que se olha.
 
 ---
 
@@ -79,14 +91,6 @@ Fechar em feriado é manual. Pré-carregar os nacionais seria conveniente, mas v
 cidade/estado e viraria regra fixa no código — precisaria vir de configuração ou de uma
 tabela por tenant.
 
-### 10. Importar os dados reais do Duda Machado — *falta*
-O sistema atual do Duda (`Duda-machado-main`, Supabase) tem profissionais, categorias,
-serviços e clientes reais. O plano combinado: manter o schema multi-tenant novo e escrever
-um importador **somente leitura** sobre o banco dele.
-
-⚠️ **O sistema do Duda está no ar.** Qualquer script só lê; nada de escrever ou alterar
-schema lá.
-
 ### 11. Domínio próprio — *falta*
 `tenants.custom_domain` existe e é único, mas a resolução por host não foi implementada —
 hoje o tenant sai sempre do slug na URL.
@@ -108,6 +112,29 @@ aí sim precisa paginar e mover a busca para o servidor.
 
 ## Já resolvido (para não reabrir)
 
+- **O sistema pode morar num schema próprio** (`DB_SCHEMA`, ou `SUPABASE_SCHEMA`, o nome
+  que os outros projetos da casa já usam). Sem a variável é `public` e nada muda, então
+  quem já subiu não sente. Existe porque um projeto Supabase costuma hospedar mais de um
+  sistema — o Supabase cobra por projeto — e duas instalações em `public` colidem na
+  primeira tabela de nome repetido: `clients`, `payments` e `products` se repetem em todos.
+  O `search_path` é aplicado **em cada conexão nova** do pool, não uma vez: o pool abre e
+  fecha conexões ao longo da vida do processo, e uma aberta depois nasceria em `public` —
+  o sintoma seria dos piores, funcionar no começo e passar a dar "relation does not exist"
+  quando o pool cresce. `public` e `extensions` ficam no fim do caminho porque é onde moram
+  `gen_random_uuid` e `btree_gist` (o Supabase põe as suas em `extensions`; num Postgres
+  comum esse schema não existe, e nome inexistente em `search_path` é ignorado sem erro).
+  Vale igual no `db:migrate` e no `db:seed`.
+- **`db:migrate --reset` não derruba mais o `public` alheio.** Ele fazia
+  `DROP SCHEMA public CASCADE` fixo — num projeto compartilhado, um comando de dev apagando
+  dado de produção do vizinho, sem perguntar nada. Agora derruba o schema da instalação, e
+  recusa rodar com `NODE_ENV=production`. Testado com um sistema vizinho no `public`: o
+  reset recriou 27 tabelas do nosso schema e o vizinho ficou intacto.
+- **Seed sem senha conhecida.** O padrão era `duda@dudamachado.com.br` / `dudamachado`,
+  escrito no script **e no README**. É o mesmo defeito que já custou o painel de outro
+  sistema da casa: senha versionada, e quem abriu o repositório entrou. Agora a senha é
+  sorteada por execução e mostrada uma vez (só o hash vai ao banco), o seed recusa
+  `NODE_ENV=production` sem `SEED_FORCE`, e os dados de demonstração deixaram de usar nome
+  de pessoa real.
 - **Estorno de pagamento** (migration `004_refunds.sql`). Ficha do atendimento → *Registrar
   devolução*, no todo ou em parte. É **registro, não transferência**: quem devolve o
   dinheiro é o dono, pelo Pix ou pela maquininha — não há gateway ligado, e mesmo quando

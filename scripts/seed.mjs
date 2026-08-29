@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Popula o sistema com o Estúdio Duda Machado: usuário dono, profissionais,
+ * Popula o sistema com um estúdio de demonstração: usuário dono, profissionais,
  * serviços por categoria, horários e mensagens automáticas.
  *
  * Serve como empresa inicial de verdade e também como exemplo de tudo que uma
@@ -11,6 +11,7 @@
  * Para criar outra empresa em vez desta, use SEED_SLUG / SEED_EMAIL /
  * SEED_PASSWORD ou cadastre pela tela /cadastro.
  */
+import { randomBytes } from 'node:crypto';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import 'dotenv/config';
@@ -21,9 +22,34 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const SLUG = process.env.SEED_SLUG || 'duda-machado';
-const EMAIL = process.env.SEED_EMAIL || 'duda@dudamachado.com.br';
-const PASSWORD = process.env.SEED_PASSWORD || 'dudamachado';
+// Dados de demonstracao. Nao ha cliente com este nome: e' so um exemplo
+// completo do que uma empresa precisa ter para a pagina publica funcionar.
+const SLUG = process.env.SEED_SLUG || 'estudio-demo';
+const EMAIL = process.env.SEED_EMAIL || 'dono@exemplo.local';
+
+const SCHEMA = (process.env.DB_SCHEMA ?? process.env.SUPABASE_SCHEMA ?? 'public').trim();
+if (!/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(SCHEMA)) {
+  console.error(`DB_SCHEMA invalido: ${JSON.stringify(SCHEMA)}`);
+  process.exit(1);
+}
+
+/**
+ * Senha sorteada quando `SEED_PASSWORD` nao vem, e impressa uma vez so.
+ *
+ * Antes o padrao era uma senha fixa, escrita aqui e repetida no README. Foi
+ * exatamente assim que se perdeu o painel de outro sistema da casa: a senha
+ * estava versionada, e quem abriu o repositorio entrou. Senha padrao conhecida
+ * nao e' conveniencia -- e' uma porta que ninguem lembra de fechar.
+ */
+const PASSWORD = process.env.SEED_PASSWORD || randomBytes(9).toString('base64url');
+const SENHA_SORTEADA = !process.env.SEED_PASSWORD;
+
+// Semear em producao criaria uma empresa de mentira no sistema do cliente, com
+// um usuario dono que ninguem pediu.
+if (process.env.NODE_ENV === 'production' && !process.env.SEED_FORCE) {
+  console.error('db:seed recusado com NODE_ENV=production. Use SEED_FORCE=1 se for mesmo isso.');
+  process.exit(1);
+}
 
 const needsSsl =
   process.env.DATABASE_SSL !== 'false' &&
@@ -35,10 +61,10 @@ const client = new pg.Client({
 });
 
 const NEGOCIO = {
-  nome: 'Estúdio Duda Machado',
-  telefone: '11987654321',
-  instagram: '@dudamachado.studio',
-  endereco: 'Rua Harmonia, 480 — Vila Madalena, São Paulo/SP',
+  nome: 'Estúdio Demonstração',
+  telefone: '11900000000',
+  instagram: '@estudio.demo',
+  endereco: 'Rua Exemplo, 100 — Centro, São Paulo/SP',
 };
 
 /** As categorias viram as abas da página de agendamento. */
@@ -92,6 +118,9 @@ const TEMPLATES = {
 
 async function main() {
   await client.connect();
+  // Mesmo caminho do migrate e do app: sem isto o seed escreveria em `public`
+  // enquanto as tabelas estao no schema da instalacao.
+  await client.query(`SET search_path TO "${SCHEMA}", public, extensions`);
   await client.query('BEGIN');
 
   const existing = await client.query('SELECT id FROM tenants WHERE slug = $1', [SLUG]);
@@ -122,18 +151,18 @@ async function main() {
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
   const owner = await client.query(
     `INSERT INTO users (tenant_id, name, email, phone, password_hash, role)
-     VALUES ($1, 'Duda Machado', $2, $3, $4, 'OWNER') RETURNING id`,
+     VALUES ($1, 'Dona do Estúdio', $2, $3, $4, 'OWNER') RETURNING id`,
     [tenantId, EMAIL, NEGOCIO.telefone, passwordHash]
   );
 
-  const duda = await client.query(
+  const ana = await client.query(
     `INSERT INTO professionals (tenant_id, user_id, name, bio, display_order)
-     VALUES ($1, $2, 'Duda Machado', 'Corte e coloração', 0) RETURNING id`,
+     VALUES ($1, $2, 'Ana', 'Corte e coloração', 0) RETURNING id`,
     [tenantId, owner.rows[0].id]
   );
-  const larissa = await client.query(
+  const bruna = await client.query(
     `INSERT INTO professionals (tenant_id, name, bio, display_order)
-     VALUES ($1, 'Larissa', 'Tratamentos e sobrancelha', 1) RETURNING id`,
+     VALUES ($1, 'Bruna', 'Tratamentos e sobrancelha', 1) RETURNING id`,
     [tenantId]
   );
 
@@ -147,17 +176,17 @@ async function main() {
     servicoIds[servico.nome] = row.rows[0].id;
   }
 
-  // Só a Larissa faz sobrancelha; o resto as duas atendem (sem vínculo = todas).
+  // Só a Bruna faz sobrancelha; o resto as duas atendem (sem vínculo = todas).
   for (const nome of ['Design de sobrancelha', 'Design com henna']) {
     await client.query(
       `INSERT INTO professional_services (tenant_id, professional_id, service_id) VALUES ($1,$2,$3)`,
-      [tenantId, larissa.rows[0].id, servicoIds[nome]]
+      [tenantId, bruna.rows[0].id, servicoIds[nome]]
     );
   }
-  // Mechas e iluminado: só a Duda.
+  // Mechas e iluminado: só a Ana.
   await client.query(
     `INSERT INTO professional_services (tenant_id, professional_id, service_id) VALUES ($1,$2,$3)`,
-    [tenantId, duda.rows[0].id, servicoIds['Mechas e iluminado']]
+    [tenantId, ana.rows[0].id, servicoIds['Mechas e iluminado']]
   );
 
   // terça a sexta 09:00–19:00, sábado 09:00–17:00; domingo e segunda fechado
@@ -215,7 +244,11 @@ async function main() {
   console.log(`  Painel         : /login`);
   console.log(`  E-mail         : ${EMAIL}`);
   console.log(`  Senha          : ${PASSWORD}`);
-  console.log(`  Profissionais  : Duda Machado, Larissa`);
+  if (SENHA_SORTEADA) {
+    console.log('                   ^ sorteada agora e mostrada uma vez so.');
+    console.log('                     Anote: so o hash foi gravado.');
+  }
+  console.log(`  Profissionais  : Ana, Bruna`);
   console.log(`  Servicos       : ${SERVICOS.length} em ${categorias.length} abas (${categorias.join(', ')})`);
   console.log(`  Produtos       : ${PRODUTOS.length} em estoque`);
   console.log(`  Funcionamento  : ter-sex 09:00-19:00, sab 09:00-17:00\n`);

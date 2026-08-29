@@ -7,15 +7,38 @@ import { env } from './env';
  */
 const globalForDb = globalThis as unknown as { __pgPool?: Pool };
 
-export const pool: Pool =
-  globalForDb.__pgPool ??
-  new Pool({
+function criarPool(): Pool {
+  const p = new Pool({
     connectionString: env.databaseUrl,
     ssl: env.databaseSsl ? { rejectUnauthorized: false } : undefined,
     max: Number(process.env.PG_POOL_MAX ?? 10),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
   });
+
+  const schema = env.dbSchema;
+  if (schema !== 'public') {
+    // Em cada conexao nova, e nao uma vez so: o pool abre e fecha conexoes ao
+    // longo da vida do processo, e uma conexao aberta depois nasceria em
+    // `public`. O sintoma seria das piores: funciona no comeco e comeca a dar
+    // "relation does not exist" quando o pool cresce.
+    //
+    // `public` e `extensions` ficam no fim do caminho porque e' onde moram
+    // gen_random_uuid e btree_gist -- sem eles, o DEFAULT gen_random_uuid() das
+    // tabelas para de resolver. `extensions` e' onde o Supabase poe as suas (o
+    // search_path padrao dele e' `public, extensions`); num Postgres comum esse
+    // schema nao existe, e nome inexistente em search_path e' ignorado sem erro.
+    p.on('connect', (client) => {
+      client.query(`SET search_path TO "${schema}", public, extensions`).catch((err) => {
+        console.error(`[db] falha ao apontar para o schema ${schema}:`, err);
+      });
+    });
+  }
+
+  return p;
+}
+
+export const pool: Pool = globalForDb.__pgPool ?? criarPool();
 
 if (process.env.NODE_ENV !== 'production') globalForDb.__pgPool = pool;
 

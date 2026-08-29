@@ -22,17 +22,35 @@ npm run db:seed               # empresa de demonstração (opcional)
 npm run dev
 ```
 
-O seed cria o **Estúdio Duda Machado** — 14 serviços em 4 categorias (Cabelo, Coloração,
-Tratamentos, Sobrancelha), 6 produtos de revenda com estoque, duas profissionais e horário
-de terça a sábado:
+O seed cria um **estúdio de demonstração** — 14 serviços em 4 categorias (Cabelo,
+Coloração, Tratamentos, Sobrancelha), 6 produtos de revenda com estoque, duas
+profissionais e horário de terça a sábado:
 
 | O quê | Onde |
 |---|---|
-| Página pública | `http://localhost:3000/agendar/duda-machado` |
+| Página pública | `http://localhost:3000/agendar/estudio-demo` |
 | Painel | `http://localhost:3000/login` |
-| Login | `duda@dudamachado.com.br` / `dudamachado` |
+| Login | o e-mail e a **senha sorteada** que o seed imprime ao rodar |
+
+A senha é sorteada a cada execução e mostrada uma vez só — só o hash vai para o banco.
+Para escolher a sua, `SEED_EMAIL` e `SEED_PASSWORD`. Nunca versione nenhuma das duas:
+foi assim que se perdeu o painel de outro sistema da casa, com a senha no README.
 
 Sem seed, crie a primeira empresa em `/cadastro` — nenhuma linha de código por cliente.
+
+### Onde as tabelas moram
+
+Por padrão em `public`. Num projeto Postgres compartilhado com outro sistema — o que é
+comum aqui, porque o Supabase cobra por projeto — dê um schema só para esta instalação:
+
+```env
+DB_SCHEMA=barbearia        # SUPABASE_SCHEMA também é aceito
+```
+
+Vale para o app, o `db:migrate` e o `db:seed`. Duas instalações em `public` colidem na
+primeira tabela de nome repetido, e `clients`, `payments` e `products` se repetem em
+todo sistema da casa. O `db:migrate --reset` derruba **esse** schema, não o `public` —
+e recusa rodar com `NODE_ENV=production`.
 
 ### Variáveis obrigatórias
 
