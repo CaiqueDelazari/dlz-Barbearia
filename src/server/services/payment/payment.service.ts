@@ -274,6 +274,159 @@ export async function markPaymentStatus(paymentId: string, status: string): Prom
 }
 
 /**
+ * Devolve o dinheiro de um pagamento, no todo ou em parte.
+ *
+ * **Registro, nao transferencia.** Isto anota que a devolucao aconteceu e
+ * desfaz o efeito dela no sistema; quem devolve de fato e' o dono, no Pix ou
+ * na maquininha. Nao existe estorno automatico porque nao existe gateway
+ * ligado -- e mesmo quando existir, estorno de cartao passa pelo adquirente e
+ * demora dias, entao o registro continua sendo o passo de dentro.
+ *
+ * O que precisa acontecer junto, ou o sistema fica mentindo:
+ *
+ * - `payments.refunded_amount` sobe, e o status vira 'refunded' so quando a
+ *   devolucao alcanca o valor pago. Devolveu metade, o pagamento continua
+ *   'paid' -- porque metade dele continua sendo dinheiro que entrou.
+ * - `appointments.paid_amount` desce na mesma proporcao com que o pagamento
+ *   subiu, e `payment_status` volta para 'partially_paid' ou 'pending'. Sem
+ *   isso o horario seguiria marcado como pago e ninguem cobraria de novo.
+ *
+ * O rateio repete o do `applyToGroup`, inclusive o ajuste na ultima parcela,
+ * para que devolver tudo devolva exatamente tudo: dividir por proporcao deixa
+ * centavo sobrando, e centavo sobrando num campo de dinheiro vira uma cobranca
+ * fantasma de R$ 0,01 que ninguem consegue quitar.
+ */
+export async function refundPayment(input: {
+  tenantId: string;
+  paymentId: string;
+  amount?: number;
+  reason?: string;
+  userId?: string | null;
+  ip?: string;
+}): Promise<{ refundedNow: number; refundedTotal: number; status: string }> {
+  const resultado = await transaction(async (tx) => {
+    const encontrado = await tx.query<{
+      id: string;
+      tenant_id: string;
+      booking_group_id: string | null;
+      amount: number;
+      refunded_amount: number;
+      status: string;
+    }>(
+      `SELECT id, tenant_id, booking_group_id,
+              amount::float8 AS amount, refunded_amount::float8 AS refunded_amount, status
+         FROM payments WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+      [input.paymentId, input.tenantId]
+    );
+    if (!encontrado.rowCount) throw ApiError.notFound('Pagamento nao encontrado');
+    const pagamento = encontrado.rows[0];
+
+    // Nao se devolve o que nunca entrou. Um pagamento pendente ou falho se
+    // cancela; chamar isso de estorno faria o relatorio contar uma saida de
+    // dinheiro que nao houve.
+    if (pagamento.status !== 'paid' && pagamento.status !== 'refunded') {
+      throw ApiError.conflict(
+        `Pagamento ${pagamento.status}: so da para estornar o que foi pago.`,
+        'payment_not_paid'
+      );
+    }
+
+    const jaDevolvido = Number(pagamento.refunded_amount);
+    const disponivel = Math.round((Number(pagamento.amount) - jaDevolvido) * 100) / 100;
+    if (disponivel <= 0) throw ApiError.conflict('Este pagamento ja foi estornado por inteiro');
+
+    const pedido = input.amount ?? disponivel;
+    const valor = Math.round(pedido * 100) / 100;
+    if (valor <= 0) throw ApiError.badRequest('O valor do estorno precisa ser maior que zero');
+    if (valor > disponivel) {
+      throw ApiError.conflict(
+        `Restam ${disponivel.toFixed(2)} para estornar neste pagamento.`,
+        'refund_exceeds_paid'
+      );
+    }
+
+    const totalDevolvido = Math.round((jaDevolvido + valor) * 100) / 100;
+    const quitado = totalDevolvido >= Number(pagamento.amount);
+
+    await tx.query(
+      `UPDATE payments
+          SET refunded_amount = $2,
+              refunded_at     = now(),
+              refund_reason   = COALESCE($3, refund_reason),
+              status          = CASE WHEN $4 THEN 'refunded'::payment_status ELSE status END
+        WHERE id = $1`,
+      [input.paymentId, totalDevolvido, input.reason ?? null, quitado]
+    );
+
+    if (pagamento.booking_group_id) {
+      await removeFromGroup(tx, input.tenantId, pagamento.booking_group_id, valor);
+    }
+
+    return {
+      refundedNow: valor,
+      refundedTotal: totalDevolvido,
+      status: quitado ? 'refunded' : pagamento.status,
+    };
+  });
+
+  await audit({
+    tenantId: input.tenantId,
+    userId: input.userId,
+    action: 'payment.refund',
+    entity: 'payment',
+    entityId: input.paymentId,
+    after: {
+      valor: resultado.refundedNow,
+      totalEstornado: resultado.refundedTotal,
+      motivo: input.reason ?? null,
+    },
+    ip: input.ip,
+  });
+
+  return resultado;
+}
+
+/** Espelho do `applyToGroup`: tira do grupo o que o estorno devolveu. */
+async function removeFromGroup(
+  tx: PoolClient,
+  tenantId: string,
+  bookingGroupId: string,
+  amount: number
+): Promise<void> {
+  const rows = await tx.query<{ id: string; total_amount: number }>(
+    `SELECT id, total_amount::float8 AS total_amount
+       FROM appointments
+      WHERE tenant_id = $1 AND booking_group_id = $2
+      ORDER BY starts_at
+      FOR UPDATE`,
+    [tenantId, bookingGroupId]
+  );
+  if (!rows.rowCount) return;
+
+  const groupTotal = rows.rows.reduce((s, r) => s + Number(r.total_amount), 0) || 1;
+  let distributed = 0;
+
+  for (const [index, appt] of rows.rows.entries()) {
+    const isLast = index === rows.rows.length - 1;
+    const share = isLast
+      ? Math.round((amount - distributed) * 100) / 100
+      : Math.round(((Number(appt.total_amount) / groupTotal) * amount) * 100) / 100;
+    distributed += share;
+
+    await tx.query(
+      `UPDATE appointments
+          SET paid_amount = GREATEST(0, paid_amount - $3),
+              payment_status = CASE
+                WHEN GREATEST(0, paid_amount - $3) <= 0 THEN 'pending'::payment_status
+                WHEN GREATEST(0, paid_amount - $3) >= total_amount THEN 'paid'::payment_status
+                ELSE 'partially_paid'::payment_status END
+        WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, appt.id, share]
+    );
+  }
+}
+
+/**
  * Webhook. Grava o evento primeiro: se o gateway reenviar o mesmo evento, o
  * UNIQUE barra e nada e processado duas vezes.
  */

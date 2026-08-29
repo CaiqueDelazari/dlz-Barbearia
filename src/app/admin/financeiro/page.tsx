@@ -12,6 +12,8 @@ type Summary = {
   period: { from: string; to: string };
   entradas: number;
   despesas: number;
+  estornos: number;
+  quantidadeEstornos: number;
   resultado: number;
   pagamentosPorMetodo: { metodo: string; total: number; quantidade: number }[];
   despesasPorCategoria: { categoria: string; total: number }[];
@@ -146,6 +148,12 @@ export default function FinanceiroPage() {
                   <TrendingUp size={16} className="text-brand-500" />
                 </div>
                 <p className="tnum text-2xl font-light text-ink-100">{money(summary.entradas)}</p>
+                {summary.estornos > 0 && (
+                  <p className="tnum mt-1 text-xs text-state-warn">
+                    −{money(summary.estornos)} estornado
+                    <span className="ml-1 text-ink-500">({summary.quantidadeEstornos})</span>
+                  </p>
+                )}
               </article>
               <article className="card p-4">
                 <div className="mb-2 flex items-center justify-between">

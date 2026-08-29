@@ -12,7 +12,9 @@ export const GET = route(async (req: Request, { params }: { params: { id: string
   const appointment = await getAppointment(session.tenantId, params.id);
 
   const payments = await query(
-    `SELECT id, amount::float8 AS amount, kind, method, status, provider, paid_at, created_at
+    `SELECT id, amount::float8 AS amount, kind, method, status, provider, paid_at, created_at,
+            refunded_amount::float8 AS "refundedAmount", refunded_at AS "refundedAt",
+            refund_reason AS "refundReason"
        FROM payments
       WHERE tenant_id = $1 AND booking_group_id = $2
       ORDER BY created_at`,

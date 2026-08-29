@@ -65,7 +65,8 @@ export function AppointmentDetails({
   const [sales, setSales] = useState<Sale[]>([]);
   const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
   const [picking, setPicking] = useState(false);
-  const [payments, setPayments] = useState<{ id: string; amount: number; method: string | null; status: string; kind: string }[]>([]);
+  const [payments, setPayments] = useState<{ id: string; amount: number; method: string | null; status: string; kind: string; refundedAmount: number; refundReason: string | null }[]>([]);
+  const [estornando, setEstornando] = useState<string | null>(null);
 
   const restante = Math.max(0, current.total_amount - current.paid_amount);
 
@@ -158,6 +159,43 @@ export function AppointmentDetails({
       toast.error(err instanceof ApiClientError ? err.message : 'Falha ao registrar');
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Registra a devolução. O dinheiro sai pelo Pix ou pela maquininha, na mão do
+   * dono — aqui só fica o registro, que é o que faz o caixa e o horário
+   * voltarem a bater. Por isso o texto do confirm fala em "registrar", e não
+   * em "estornar": prometer que o sistema devolve o dinheiro seria mentira.
+   */
+  async function estornar(paymentId: string, disponivel: number) {
+    const bruto = prompt(
+      `Quanto devolver? Restam ${money(disponivel)} neste pagamento.\n\n` +
+        'O dinheiro você devolve pelo Pix ou pela maquininha — aqui fica o registro, ' +
+        'que tira do caixa e volta o horário para não pago.',
+      String(disponivel.toFixed(2))
+    );
+    if (bruto === null) return;
+
+    const valor = Number(bruto.replace(',', '.'));
+    if (!valor || valor <= 0) return toast.error('Informe um valor maior que zero');
+    if (valor > disponivel) return toast.error(`O máximo é ${money(disponivel)}`);
+
+    const motivo = prompt('Motivo (opcional) — fica no histórico:') ?? undefined;
+
+    setEstornando(paymentId);
+    try {
+      await api.post(`/payments/${paymentId}/refund`, { amount: valor, reason: motivo || undefined });
+      toast.success('Estorno registrado');
+      const r = await api.get<{ payments: typeof payments }>(
+        `/appointments/${appointment.id}/payments`
+      );
+      setPayments(r.payments);
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : 'Falha ao estornar');
+    } finally {
+      setEstornando(null);
     }
   }
 
@@ -317,18 +355,42 @@ export function AppointmentDetails({
           {payments.length > 0 && (
             <div>
               <p className="label">Pagamentos</p>
-              <ul className="space-y-1 text-xs text-ink-400">
-                {payments.map((payment) => (
-                  <li key={payment.id} className="flex justify-between">
-                    <span>
-                      {payment.kind === 'deposit' ? 'Sinal' : payment.kind === 'onsite' ? 'Presencial' : 'Integral'}
-                      {payment.method ? ` · ${payment.method}` : ''}
-                    </span>
-                    <span className={payment.status === 'paid' ? 'text-brand-500' : ''}>
-                      {money(payment.amount)} · {payment.status}
-                    </span>
-                  </li>
-                ))}
+              <ul className="space-y-2 text-xs text-ink-400">
+                {payments.map((payment) => {
+                  const devolvido = Number(payment.refundedAmount ?? 0);
+                  const disponivel = Math.round((payment.amount - devolvido) * 100) / 100;
+                  const podeEstornar =
+                    disponivel > 0 && (payment.status === 'paid' || payment.status === 'refunded');
+                  return (
+                    <li key={payment.id}>
+                      <div className="flex justify-between">
+                        <span>
+                          {payment.kind === 'deposit' ? 'Sinal' : payment.kind === 'onsite' ? 'Presencial' : 'Integral'}
+                          {payment.method ? ` · ${payment.method}` : ''}
+                        </span>
+                        <span className={payment.status === 'paid' ? 'text-brand-500' : ''}>
+                          {money(payment.amount)} · {payment.status}
+                        </span>
+                      </div>
+                      {devolvido > 0 && (
+                        <div className="mt-0.5 text-state-warn">
+                          {money(devolvido)} devolvido
+                          {payment.refundReason ? ` · ${payment.refundReason}` : ''}
+                        </div>
+                      )}
+                      {podeEstornar && (
+                        <button
+                          type="button"
+                          disabled={estornando === payment.id}
+                          onClick={() => estornar(payment.id, disponivel)}
+                          className="mt-1 text-xs text-ink-500 underline underline-offset-2 hover:text-state-warn disabled:opacity-50"
+                        >
+                          {estornando === payment.id ? 'Registrando…' : 'Registrar devolução'}
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

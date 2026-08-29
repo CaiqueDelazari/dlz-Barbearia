@@ -256,6 +256,114 @@ describe('pagamento presencial', () => {
   });
 });
 
+describe('estorno', () => {
+  /** Reserva paga por inteiro, pronta para devolver. */
+  async function reservaPaga(nome: string, telefone: string) {
+    const reserva = await reservarPeloPainel(nome, telefone);
+    const id = reserva.appointments[0].id;
+    const pago = await empresa.api.post(`/appointments/${id}/payments`, {
+      amount: 200, method: 'pix',
+    });
+    assert.equal(pago.status, 201);
+    assert.equal(pago.data.appointment.payment_status, 'paid');
+
+    const extrato = await empresa.api.get(`/appointments/${id}/payments`);
+    const pagamento = extrato.data.payments.find((p: any) => p.status === 'paid');
+    assert.ok(pagamento, 'precisa existir um pagamento pago para estornar');
+    return { appointmentId: id, paymentId: pagamento.id };
+  }
+
+  const ficha = async (id: string) =>
+    (await empresa.api.get(`/appointments/${id}`)).data.appointment;
+
+  test('devolver tudo tira do caixa e volta o horário para não pago', async () => {
+    const { appointmentId, paymentId } = await reservaPaga('Estorno Total', '11911110020');
+
+    const r = await empresa.api.post(`/payments/${paymentId}/refund`, {
+      reason: 'cliente desistiu',
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.error));
+    assert.equal(dinheiro(r.data.refundedNow), 200, 'sem valor no corpo, devolve o que resta');
+    assert.equal(r.data.status, 'refunded');
+
+    const depois = await ficha(appointmentId);
+    assert.equal(dinheiro(depois.paid_amount), 0, 'o dinheiro sai do atendimento');
+    assert.equal(
+      depois.payment_status,
+      'pending',
+      'volta a dever — senão ninguém cobra de novo e o corte sai de graça'
+    );
+  });
+
+  test('devolver metade mantém o pagamento pago, com a parte devolvida à vista', async () => {
+    const { appointmentId, paymentId } = await reservaPaga('Estorno Parcial', '11911110021');
+
+    const r = await empresa.api.post(`/payments/${paymentId}/refund`, { amount: 80 });
+    assert.equal(r.status, 200);
+    assert.equal(dinheiro(r.data.refundedNow), 80);
+    assert.equal(r.data.status, 'paid', 'os outros 120 continuam sendo dinheiro que entrou');
+
+    const depois = await ficha(appointmentId);
+    assert.equal(dinheiro(depois.paid_amount), 120);
+    assert.equal(depois.payment_status, 'partially_paid');
+
+    const extrato = await empresa.api.get(`/appointments/${appointmentId}/payments`);
+    const linha = extrato.data.payments.find((p: any) => p.id === paymentId);
+    assert.equal(dinheiro(linha.refundedAmount), 80, 'o extrato mostra quanto voltou');
+  });
+
+  test('não devolve mais do que entrou, nem em duas vezes', async () => {
+    const { paymentId } = await reservaPaga('Estorno Demais', '11911110022');
+
+    const demais = await empresa.api.post(`/payments/${paymentId}/refund`, { amount: 500 });
+    assert.equal(demais.status, 409, 'não se devolve dinheiro que nunca entrou');
+
+    assert.equal((await empresa.api.post(`/payments/${paymentId}/refund`, { amount: 150 })).status, 200);
+    const segundo = await empresa.api.post(`/payments/${paymentId}/refund`, { amount: 100 });
+    assert.equal(segundo.status, 409, 'o segundo estorno só pode alcançar o que sobrou');
+
+    // e o que sobrou ainda pode sair
+    const resto = await empresa.api.post(`/payments/${paymentId}/refund`, { amount: 50 });
+    assert.equal(resto.status, 200);
+    assert.equal(resto.data.status, 'refunded');
+  });
+
+  test('pagamento que nunca foi pago não se estorna', async () => {
+    const reserva = await reservarPeloPainel('Nunca Pagou', '11911110023');
+    const checkout = await empresa.anon.post('/payments/checkout', {
+      bookingGroupId: reserva.bookingGroupId, mode: 'full',
+    });
+    assert.equal(checkout.status, 201);
+
+    const r = await empresa.api.post(`/payments/${checkout.data.payment.id}/refund`, {});
+    assert.equal(r.status, 409, 'pendente se cancela, não se estorna');
+  });
+
+  test('o estorno aparece no financeiro sem apagar a entrada', async () => {
+    const { paymentId } = await reservaPaga('Estorno Caixa', '11911110024');
+
+    const antes = await empresa.api.get('/financial/summary?range=month');
+    await empresa.api.post(`/payments/${paymentId}/refund`, { amount: 200 });
+    const depois = await empresa.api.get('/financial/summary?range=month');
+
+    assert.equal(
+      dinheiro(depois.data.estornos - antes.data.estornos),
+      200,
+      'a devolução tem linha própria'
+    );
+    assert.equal(
+      dinheiro(depois.data.entradas),
+      dinheiro(antes.data.entradas),
+      'Entradas continua sendo o bruto que entrou — o dinheiro entrou mesmo'
+    );
+    assert.equal(
+      dinheiro(antes.data.resultado - depois.data.resultado),
+      200,
+      'o resultado é que sente a devolução'
+    );
+  });
+});
+
 describe('link do cliente', () => {
   test('mostra o agendamento e a política', async () => {
     const reserva = await reservarPeloPainel('Link', '11911110010');

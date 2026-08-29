@@ -179,18 +179,24 @@ export function stripFinancials<T extends { cards: Record<string, unknown> }>(da
 export async function getFinancialSummary(tenantId: string, period?: Partial<Period>) {
   const { from, to, start, end } = await resolveRange(tenantId, period);
 
-  const [entradas, porMetodo, despesas, porCategoria, produtos] = await Promise.all([
+  const [entradas, porMetodo, despesas, porCategoria, produtos, estornos] = await Promise.all([
     queryOne<{ total: number; quantidade: number }>(
+      // `status IN ('paid','refunded')`: um pagamento estornado por inteiro vira
+      // 'refunded', e some daqui se so olharmos 'paid' -- o dinheiro sumiria do
+      // periodo em que de fato entrou, e o mes fechado mudaria sozinho depois.
+      // Entradas continua sendo o bruto que entrou; o estorno sai na linha dele.
       `SELECT COALESCE(sum(amount), 0)::float8 AS total, count(*)::int AS quantidade
          FROM payments
-        WHERE tenant_id = $1 AND status = 'paid' AND paid_at >= $2 AND paid_at < $3`,
+        WHERE tenant_id = $1 AND status IN ('paid','refunded')
+          AND paid_at >= $2 AND paid_at < $3`,
       [tenantId, start, end]
     ),
     query(
       `SELECT COALESCE(method::text, 'nao_informado') AS metodo,
               sum(amount)::float8 AS total, count(*)::int AS quantidade
          FROM payments
-        WHERE tenant_id = $1 AND status = 'paid' AND paid_at >= $2 AND paid_at < $3
+        WHERE tenant_id = $1 AND status IN ('paid','refunded')
+          AND paid_at >= $2 AND paid_at < $3
         GROUP BY metodo ORDER BY total DESC`,
       [tenantId, start, end]
     ),
@@ -227,20 +233,33 @@ export async function getFinancialSummary(tenantId: string, period?: Partial<Per
       // só os parâmetros que a query usa: o Postgres não infere tipo de placeholder solto
       [tenantId, start, end]
     ),
+    // Conta por `refunded_at`, nao por `paid_at`: a devolucao e' um fato do dia
+    // em que aconteceu. Descontar do mes do pagamento original mudaria um mes ja
+    // fechado -- o dono olharia de novo um numero que ele ja tinha conferido.
+    queryOne<{ total: number; quantidade: number }>(
+      `SELECT COALESCE(sum(refunded_amount), 0)::float8 AS total, count(*)::int AS quantidade
+         FROM payments
+        WHERE tenant_id = $1 AND refunded_amount > 0
+          AND refunded_at >= $2 AND refunded_at < $3`,
+      [tenantId, start, end]
+    ),
   ]);
 
   const entrada = Number(entradas?.total ?? 0);
   const saida = Number(despesas?.total ?? 0);
+  const estornado = Number(estornos?.total ?? 0);
 
   return {
     period: { from, to },
     entradas: entrada,
     despesas: saida,
-    resultado: Math.round((entrada - saida) * 100) / 100,
+    estornos: estornado,
+    resultado: Math.round((entrada - saida - estornado) * 100) / 100,
     pagamentosPorMetodo: porMetodo,
     despesasPorCategoria: porCategoria,
     produtosVendidos: produtos,
     quantidadePagamentos: entradas?.quantidade ?? 0,
+    quantidadeEstornos: estornos?.quantidade ?? 0,
   };
 }
 

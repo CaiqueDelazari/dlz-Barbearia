@@ -70,14 +70,6 @@ lá. (A venda avulsa não tem essa ambiguidade — sem atendimento, conta pela d
 saiu da prateleira", é trocar `a.starts_at` por `ap.created_at` em `dashboard.service.ts`
 (nos dois `UNION`, só no ramo de `appointment_products`).
 
-### 6. Estorno e reembolso de pagamento — *falta*
-`payment_status` já prevê `refunded`, e a política de perda do sinal em caso de falta está
-nas configurações (`forfeit_deposit_on_no_show`), mas **não há fluxo**: não dá para
-estornar um pagamento de agendamento nem registrar a devolução do sinal.
-
-A venda avulsa já tem o caminho de desfazer (cancelar devolve o estoque e tira do caixa) —
-serve de modelo, mas o pagamento de agendamento é mais complicado porque pode ser parcial.
-
 ---
 
 ## Baixa
@@ -116,6 +108,27 @@ aí sim precisa paginar e mover a busca para o servidor.
 
 ## Já resolvido (para não reabrir)
 
+- **Estorno de pagamento** (migration `004_refunds.sql`). Ficha do atendimento → *Registrar
+  devolução*, no todo ou em parte. É **registro, não transferência**: quem devolve o
+  dinheiro é o dono, pelo Pix ou pela maquininha — não há gateway ligado, e mesmo quando
+  houver, estorno de cartão passa pelo adquirente e demora dias. O texto da tela fala em
+  "registrar" por isso.
+  O valor virou coluna (`refunded_amount`) em vez de só um status, porque na prática o
+  estorno costuma ser parcial; devolver metade mantém o pagamento `paid`, já que a outra
+  metade continua sendo dinheiro que entrou. Descontar por linha negativa em `payments`
+  não serve: o `CHECK (amount >= 0)` existe justamente para que nenhuma soma de
+  faturamento precise lembrar de excluir linha negativa — a que esquecesse daria número
+  errado sem erro nenhum.
+  O estorno desfaz o efeito nos dois lugares: `payments.refunded_amount` sobe e
+  `appointments.paid_amount` desce na mesma proporção com que subiu (mesmo rateio do
+  `applyToGroup`, inclusive o ajuste do último, senão sobra centavo e vira cobrança
+  fantasma de R$ 0,01 que ninguém quita), com o `payment_status` voltando para
+  `partially_paid` ou `pending` — sem isso o horário seguiria marcado como pago e ninguém
+  cobraria de novo.
+  No Financeiro, *Entradas* continua sendo o bruto que entrou e o estorno tem linha
+  própria, contada por `refunded_at`: descontar do mês do pagamento original mudaria um mês
+  já fechado. ADMIN, e o `tenantId` vem da sessão — id de outra empresa dá 404. 5 testes
+  e2e.
 - **Comissão de profissionais.** Financeiro → *Comissões*: quanto cada um gerou no período
   e quanto tem a receber, com o total. Três decisões que mudam o número, e por isso estão
   escritas na tela e no `getCommissionReport`: conta só atendimento **concluído** (comissão
