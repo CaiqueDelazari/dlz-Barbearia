@@ -243,3 +243,126 @@ export async function getFinancialSummary(tenantId: string, period?: Partial<Per
     quantidadePagamentos: entradas?.quantidade ?? 0,
   };
 }
+
+const centavos = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * Quanto cada profissional gerou no periodo e quanto tem a receber.
+ *
+ * Tres decisoes que mudam o numero, escritas aqui porque quem le a tela precisa
+ * saber qual conta esta vendo:
+ *
+ * 1. **So atendimento `completed`.** Comissao se paga por servico prestado, nao
+ *    por horario marcado. Um `confirmed` no futuro entraria como trabalho feito
+ *    e o dono pagaria adiantado por corte que ainda nao aconteceu.
+ * 2. **A base e o servico, nao o produto.** O percentual do profissional e um
+ *    campo so, e aplicar o mesmo numero ao xampu que ele vendeu seria chute:
+ *    margem de produto e margem de servico nao se parecem. Os produtos vendidos
+ *    no atendimento dele vao no relatorio como informacao, fora da base -- se um
+ *    dia houver comissao de produto, ela precisa do seu proprio percentual.
+ * 3. **Conta pela data do atendimento** (`starts_at`), igual a "servicos
+ *    realizados". O profissional ganha quando faz, nao quando o cliente paga.
+ *
+ * Por isso `naoRecebido` existe: e a fatia da base cujo atendimento ainda nao
+ * esta pago. O dono precisa ver essa coluna antes de pagar a comissao, senao
+ * paga do proprio bolso por dinheiro que nao entrou. Somar as duas coisas numa
+ * linha so esconderia exatamente a pergunta que ele esta fazendo.
+ *
+ * Profissional inativo aparece se trabalhou no periodo -- quem saiu no dia 10
+ * ainda tem a receber pelos dez primeiros dias.
+ */
+export async function getCommissionReport(tenantId: string, period?: Partial<Period>) {
+  const { from, to, start, end } = await resolveRange(tenantId, period);
+
+  type Linha = {
+    id: string;
+    name: string;
+    active: boolean;
+    percentual: number;
+    atendimentos: number;
+    servicos: number;
+    base: number;
+    naoRecebido: number;
+  };
+
+  // Servicos e produtos vem em consultas separadas de proposito: juntar as duas
+  // tabelas ao mesmo `appointments` multiplica as linhas (tres servicos e dois
+  // produtos viram seis), e a soma sairia inflada sem dar erro nenhum.
+  const [linhas, produtosPorProfissional] = await Promise.all([
+    query<Linha>(
+      `SELECT p.id, p.name, p.active,
+              p.commission_percent::float8                       AS percentual,
+              count(DISTINCT a.id)::int                          AS atendimentos,
+              count(s.id)::int                                   AS servicos,
+              COALESCE(sum(s.price), 0)::float8                  AS base,
+              COALESCE(sum(s.price) FILTER (
+                WHERE a.payment_status <> 'paid'), 0)::float8    AS "naoRecebido"
+         FROM professionals p
+         LEFT JOIN appointments a
+                ON a.professional_id = p.id
+               AND a.tenant_id = p.tenant_id
+               AND a.status = 'completed'
+               AND a.starts_at >= $2 AND a.starts_at < $3
+         LEFT JOIN appointment_services s ON s.appointment_id = a.id
+        WHERE p.tenant_id = $1
+        GROUP BY p.id, p.name, p.active, p.commission_percent
+       HAVING p.active OR count(s.id) > 0
+        ORDER BY base DESC, p.name`,
+      [tenantId, start, end]
+    ),
+    query<{ professional_id: string; total: number; itens: number }>(
+      `SELECT a.professional_id,
+              COALESCE(sum(ap.total), 0)::float8   AS total,
+              COALESCE(sum(ap.quantity), 0)::int   AS itens
+         FROM appointment_products ap
+         JOIN appointments a ON a.id = ap.appointment_id
+        WHERE ap.tenant_id = $1 AND a.status = 'completed'
+          AND a.starts_at >= $2 AND a.starts_at < $3
+          AND a.professional_id IS NOT NULL
+        GROUP BY a.professional_id`,
+      [tenantId, start, end]
+    ),
+  ]);
+
+  const produtoDe = new Map(
+    produtosPorProfissional.map((r) => [r.professional_id, r])
+  );
+
+  const itens = linhas.map((l) => {
+    const base = centavos(Number(l.base));
+    const naoRecebido = centavos(Number(l.naoRecebido));
+    const percentual = Number(l.percentual);
+    const produto = produtoDe.get(l.id);
+    return {
+      id: l.id,
+      nome: l.name,
+      ativo: l.active,
+      percentual,
+      atendimentos: l.atendimentos,
+      servicos: l.servicos,
+      base,
+      comissao: centavos((base * percentual) / 100),
+      naoRecebido,
+      comissaoNaoRecebida: centavos((naoRecebido * percentual) / 100),
+      produtosValor: centavos(Number(produto?.total ?? 0)),
+      produtosItens: Number(produto?.itens ?? 0),
+    };
+  });
+
+  const somar = (campo: 'base' | 'comissao' | 'naoRecebido' | 'comissaoNaoRecebida') =>
+    centavos(itens.reduce((t, i) => t + i[campo], 0));
+
+  return {
+    period: { from, to },
+    itens,
+    totais: {
+      base: somar('base'),
+      comissao: somar('comissao'),
+      naoRecebido: somar('naoRecebido'),
+      comissaoNaoRecebida: somar('comissaoNaoRecebida'),
+      atendimentos: itens.reduce((t, i) => t + i.atendimentos, 0),
+    },
+    /** Quem trabalhou no periodo mas esta com 0% -- provavelmente falta configurar. */
+    semPercentual: itens.filter((i) => i.percentual === 0 && i.base > 0).map((i) => i.nome),
+  };
+}

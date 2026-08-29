@@ -187,6 +187,11 @@ describe('papéis', () => {
     assert.equal((await staff.get('/settings')).status, 403);
     assert.equal((await staff.get('/expenses')).status, 403, 'financeiro não é dele');
     assert.equal(
+      (await staff.get('/financial/commissions')).status,
+      403,
+      'quanto o colega ganha é folha de pagamento, não informação de equipe'
+    );
+    assert.equal(
       (await staff.post('/products', { name: 'X', price: 1 })).status,
       403,
       'cadastrar produto é de ADMIN'
@@ -339,5 +344,73 @@ describe('worker', () => {
     assert.equal(r.status, 200);
     assert.ok('reservasExpiradas' in body.data);
     assert.ok('mensagensEnviadas' in body.data);
+  });
+
+  test('tenant precisa ser uuid', async () => {
+    const r = await fetch(`${BASE}/api/v1/jobs/run?tenant=' OR 1=1 --`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+    });
+    assert.equal(r.status, 400, 'o parâmetro não chega cru ao banco');
+  });
+
+  /**
+   * O escopo existe porque a suíte roda em paralelo e o worker é global: duas
+   * suítes chamando ao mesmo tempo roubavam trabalho uma da outra, e o teste
+   * "o worker devolve o horário não pago" falhava de vez em quando — sempre
+   * passando quando rodado sozinho, que é a assinatura de corrida entre suítes.
+   *
+   * Este teste prova o isolamento pelos dois lados: a reserva da alfa expira e
+   * a da beta, vencida do mesmo jeito, continua de pé.
+   */
+  test('rodar com escopo de uma empresa não mexe na outra', async () => {
+    const vencerReserva = async (empresa: Empresa, servicoId: string) => {
+      const dia = diaUtil(210 + Math.floor(Math.random() * 20));
+      const grade = await horarios(empresa, dia, [servicoId]);
+      const vaga = grade.slots[0];
+      assert.ok(vaga, 'a empresa precisa ter horário livre para o teste valer');
+      const feito = await agendarPeloPainel(empresa, {
+        startsAt: vaga.startsAt,
+        serviceIds: [servicoId],
+        professionalId: vaga.professionalId,
+      });
+      const id = feito.appointments[0].id;
+      await query(
+        `UPDATE appointments
+            SET status = 'pending', hold_expires_at = now() - interval '1 minute'
+          WHERE id = $1`,
+        [id]
+      );
+      return id;
+    };
+
+    const daAlfa = await vencerReserva(alfa, servicoAlfa.id);
+    const daBeta = await vencerReserva(beta, servicoBeta.id);
+
+    const r = await fetch(`${BASE}/api/v1/jobs/run?tenant=${alfa.tenantId}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+    });
+    const body = await r.json();
+    assert.equal(r.status, 200);
+    assert.equal(body.data.escopo, alfa.tenantId, 'a resposta diz em que escopo rodou');
+
+    const status = async (id: string) => {
+      const linhas = await query<{ status: string }>(
+        `SELECT status FROM appointments WHERE id = $1`,
+        [id]
+      );
+      return linhas[0]?.status;
+    };
+
+    assert.equal(await status(daAlfa), 'cancelled', 'a reserva vencida da empresa no escopo expira');
+    assert.equal(await status(daBeta), 'pending', 'a da outra empresa não é tocada');
+
+    // e a global continua global: sem escopo, a da beta também cai
+    await fetch(`${BASE}/api/v1/jobs/run`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+    });
+    assert.equal(await status(daBeta), 'cancelled', 'sem escopo o worker varre todas');
   });
 });

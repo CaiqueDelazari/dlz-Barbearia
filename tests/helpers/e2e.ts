@@ -109,6 +109,35 @@ export async function fecharPool() {
   await pool.end().catch(() => {});
 }
 
+/**
+ * Roda o worker **só para esta empresa**.
+ *
+ * Os arquivos de teste rodam em paralelo e o worker é global por padrão: ele
+ * varre os holds vencidos de todos os tenants. Duas suítes chamando ao mesmo
+ * tempo roubavam trabalho uma da outra — a segunda recebia
+ * `reservasExpiradas: 0` porque a primeira já tinha expirado a reserva dela, e
+ * o teste falhava sem nada estar quebrado. Rodando o arquivo sozinho passava
+ * sempre, que é a assinatura clássica de corrida entre suítes.
+ *
+ * Sempre use isto em teste; `?tenant=` só existe para isso. O cron de produção
+ * continua chamando sem parâmetro, e continua global.
+ */
+export async function rodarWorker(empresa: Empresa) {
+  const r = await fetch(
+    `${BASE}/api/v1/jobs/run?tenant=${encodeURIComponent(empresa.tenantId)}`,
+    { method: 'POST', headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }
+  );
+  const corpo = await r.json();
+  if (!r.ok) throw new Error(`worker falhou (${r.status}): ${JSON.stringify(corpo)}`);
+  return corpo.data as {
+    reservasExpiradas: number;
+    lembretesRetornoCriados: number;
+    mensagensEnviadas: number;
+    mensagensComFalha: number;
+    escopo: string;
+  };
+}
+
 // ------------------------------------------------------------------ datas
 const pad = (n: number) => String(n).padStart(2, '0');
 

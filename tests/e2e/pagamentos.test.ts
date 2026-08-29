@@ -7,7 +7,7 @@ import test, { after, before, describe } from 'node:test';
 import { query } from '@/lib/db';
 import {
   BASE, ajustarConfig, criarEmpresa, criarServico, diaUtil, dinheiro, fecharPool,
-  horarios, type Empresa,
+  horarios, rodarWorker, type Empresa,
 } from '../helpers/e2e';
 
 let empresa: Empresa;
@@ -333,12 +333,9 @@ describe('reserva expirada', () => {
     const jaLivre = await horarios(empresa, reserva.dia, [corte.id]);
     assert.ok(jaLivre.slots.some((s) => s.time === reserva.hora), 'prazo vencido não segura horário');
 
-    const job = await fetch(`${BASE}/api/v1/jobs/run`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
-    }).then((r) => r.json());
+    const job = await rodarWorker(empresa);
 
-    assert.ok(job.data.reservasExpiradas >= 1, 'o job precisa expirar a reserva');
+    assert.ok(job.reservasExpiradas >= 1, 'o job precisa expirar a reserva');
 
     const booking = await empresa.anon.get(`/public/booking/${reserva.manageToken}`);
     assert.equal(booking.data.appointments[0].status, 'cancelled', 'o job fecha a reserva vencida');

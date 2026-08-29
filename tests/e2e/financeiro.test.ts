@@ -7,7 +7,7 @@ import test, { after, before, describe } from 'node:test';
 import { query } from '@/lib/db';
 import {
   agendarPeloPainel, ajustarConfig, criarEmpresa, criarServico, diaUtil, dinheiro,
-  fecharPool, horarios, hojeLocal, type Empresa,
+  fecharPool, horarios, hojeLocal, rodarWorker, type Empresa,
 } from '../helpers/e2e';
 
 let empresa: Empresa;
@@ -329,12 +329,9 @@ describe('notificações', () => {
   });
 
   test('worker marca como skipped quando o WhatsApp está desligado', async () => {
-    const r = await fetch(`${process.env.APP_URL}/api/v1/jobs/run`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
-    }).then((x) => x.json());
+    const r = await rodarWorker(empresa);
 
-    assert.ok(r.data.mensagensEnviadas >= 0);
+    assert.ok(r.mensagensEnviadas >= 0);
     const fila = await query(
       `SELECT status FROM notifications WHERE tenant_id = $1 AND status = 'skipped' LIMIT 1`,
       [empresa.tenantId]
@@ -357,5 +354,110 @@ describe('relatórios', () => {
     if (concluidos > 0) {
       assert.equal(dinheiro(ticketMedio), dinheiro(recebido / concluidos));
     }
+  });
+});
+
+describe('comissões', () => {
+  let barbeiro: { id: string; name: string };
+
+  before(async () => {
+    barbeiro = await empresa.api
+      .post('/professionals', { name: 'Comissionado', commissionPercent: 40, serviceIds: [corte.id] })
+      .then((r) => {
+        assert.equal(r.status, 201);
+        return r.data.professional;
+      });
+  });
+
+  /** Agenda com este profissional, traz para hoje e conclui. */
+  async function atender() {
+    const dia = diaExclusivo();
+    const { slots } = await horarios(empresa, dia, [corte.id], barbeiro.id);
+    assert.ok(slots.length, 'o profissional precisa ter horário livre');
+    const criado = await agendarPeloPainel(empresa, {
+      startsAt: slots[0].startsAt,
+      serviceIds: [corte.id],
+      professionalId: barbeiro.id,
+      nome: 'Cliente Comissão',
+      telefone: '11955550001',
+    });
+    const id = criado.appointments[0].id;
+    await trazerParaHoje(id);
+    await empresa.api.patch(`/appointments/${id}`, { status: 'completed' });
+    return id;
+  }
+
+  const linhaDo = async (id: string) => {
+    const r = await empresa.api.get('/financial/commissions?range=today');
+    assert.equal(r.status, 200);
+    const linha = r.data.itens.find((i: any) => i.id === id);
+    assert.ok(linha, 'o profissional precisa aparecer no relatório');
+    return linha;
+  };
+
+  test('o percentual do profissional vira dinheiro a receber', async () => {
+    await atender();
+    const linha = await linhaDo(barbeiro.id);
+
+    // um corte de 150 com 40% = 60
+    assert.equal(linha.percentual, 40);
+    assert.equal(dinheiro(linha.base), 150);
+    assert.equal(dinheiro(linha.comissao), 60);
+    assert.equal(linha.atendimentos, 1);
+  });
+
+  test('serviço não pago aparece separado, não some da conta', async () => {
+    // o atendimento acima foi concluído sem pagamento registrado
+    const linha = await linhaDo(barbeiro.id);
+    assert.equal(
+      dinheiro(linha.comissaoNaoRecebida),
+      dinheiro(linha.comissao),
+      'nada foi pago ainda, então a comissão inteira está em risco'
+    );
+    assert.ok(
+      linha.naoRecebido > 0,
+      'o dono precisa ver isto antes de acertar — senão paga do próprio bolso'
+    );
+  });
+
+  test('produto vendido não entra na base da comissão', async () => {
+    const antes = await linhaDo(barbeiro.id);
+
+    const produto = await empresa.api.post('/products', {
+      name: 'Pomada Comissão', price: 80, trackStock: false,
+    });
+    assert.equal(produto.status, 201);
+
+    const id = await atender();
+    const add = await empresa.api.post(`/appointments/${id}/products`, {
+      productId: produto.data.product.id, quantity: 1,
+    });
+    assert.equal(add.status, 201);
+
+    const depois = await linhaDo(barbeiro.id);
+    assert.equal(
+      dinheiro(depois.base - antes.base),
+      150,
+      'a base cresceu só o valor do serviço; os 80 do produto ficam de fora'
+    );
+    assert.equal(dinheiro(depois.produtosValor), 80, 'o produto aparece, mas como informação');
+  });
+
+  test('horário marcado e ainda não atendido não gera comissão', async () => {
+    const antes = await linhaDo(barbeiro.id);
+
+    const dia = diaExclusivo();
+    const { slots } = await horarios(empresa, dia, [corte.id], barbeiro.id);
+    await agendarPeloPainel(empresa, {
+      startsAt: slots[0].startsAt, serviceIds: [corte.id], professionalId: barbeiro.id,
+      nome: 'Ainda Vem', telefone: '11955550002',
+    });
+
+    const depois = await linhaDo(barbeiro.id);
+    assert.equal(
+      dinheiro(depois.comissao),
+      dinheiro(antes.comissao),
+      'comissão se paga por serviço prestado, não por horário marcado'
+    );
   });
 });

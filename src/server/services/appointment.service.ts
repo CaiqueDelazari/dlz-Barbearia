@@ -535,14 +535,26 @@ export async function cancelByClient(input: {
   }
 }
 
-/** Job: devolve para a agenda as reservas que nao viraram pagamento. */
-export async function expireHolds(): Promise<number> {
+/**
+ * Job: devolve para a agenda as reservas que nao viraram pagamento.
+ *
+ * `tenantId` limita a varredura a uma empresa. O cron nao passa nada e varre
+ * todas, que e o comportamento certo em producao: uma chamada por minuto para
+ * o sistema inteiro. Quem passa e' quem chama pela API para uma empresa so --
+ * hoje a suite e2e, cujos arquivos rodam em paralelo. Sem escopo, duas suites
+ * chamando o worker ao mesmo tempo roubavam trabalho uma da outra: a que
+ * chegasse depois recebia `reservasExpiradas: 0` porque a outra ja tinha
+ * expirado a reserva dela, e o teste falhava sem nada estar quebrado.
+ */
+export async function expireHolds(tenantId?: string): Promise<number> {
   const rows = await query<{ id: string; tenant_id: string }>(
     `UPDATE appointments
         SET status = 'cancelled', cancelled_at = now(),
             cancelled_reason = 'Reserva expirada (pagamento nao concluido)'
       WHERE status = 'pending' AND hold_expires_at IS NOT NULL AND hold_expires_at < now()
-      RETURNING id, tenant_id`
+        AND ($1::uuid IS NULL OR tenant_id = $1)
+      RETURNING id, tenant_id`,
+    [tenantId ?? null]
   );
   for (const row of rows) {
     await cancelScheduledNotifications(row.tenant_id, row.id);

@@ -253,13 +253,18 @@ export async function notifyPaymentLink(input: {
 /**
  * Lembrete de retorno: cliente cujo ultimo atendimento fez exatamente N dias
  * (N vem das configuracoes) e que nao tem horario futuro marcado.
+ *
+ * `tenantId` limita a uma empresa; sem ele varre todas, que e' o que o cron
+ * faz. Ver o comentario de `expireHolds` para o porque do escopo existir.
  */
-export async function scheduleReturnReminders(): Promise<number> {
+export async function scheduleReturnReminders(tenantId?: string): Promise<number> {
   const tenants = await query<{ id: string; name: string; slug: string; days: number }>(
     `SELECT t.id, t.name, t.slug, bs.return_reminder_days AS days
        FROM tenants t
        JOIN business_settings bs ON bs.tenant_id = t.id
-      WHERE t.active AND bs.return_reminder_enabled`
+      WHERE t.active AND bs.return_reminder_enabled
+        AND ($1::uuid IS NULL OR t.id = $1)`,
+    [tenantId ?? null]
   );
 
   let created = 0;
@@ -309,8 +314,15 @@ export async function scheduleReturnReminders(): Promise<number> {
   return created;
 }
 
-/** Worker: envia o que ja venceu. Roda no cron, nunca no request do cliente. */
-export async function dispatchDueNotifications(limit = 50): Promise<{ sent: number; failed: number }> {
+/**
+ * Worker: envia o que ja venceu. Roda no cron, nunca no request do cliente.
+ *
+ * `tenantId` limita a uma empresa; sem ele varre todas. Ver `expireHolds`.
+ */
+export async function dispatchDueNotifications(
+  limit = 50,
+  tenantId?: string
+): Promise<{ sent: number; failed: number }> {
   const due = await query<{
     id: string;
     tenant_id: string;
@@ -322,12 +334,13 @@ export async function dispatchDueNotifications(limit = 50): Promise<{ sent: numb
       WHERE id IN (
         SELECT id FROM notifications
          WHERE status = 'scheduled' AND scheduled_for <= now() AND attempts < 3
+           AND ($2::uuid IS NULL OR tenant_id = $2)
          ORDER BY scheduled_for
          LIMIT $1
          FOR UPDATE SKIP LOCKED
       )
       RETURNING id, tenant_id, to_phone, body, attempts`,
-    [limit]
+    [limit, tenantId ?? null]
   );
 
   let sent = 0;

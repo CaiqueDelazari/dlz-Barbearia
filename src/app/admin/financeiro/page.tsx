@@ -27,6 +27,31 @@ type Expense = {
   paymentMethod: string | null;
 };
 
+type Commissions = {
+  itens: {
+    id: string;
+    nome: string;
+    ativo: boolean;
+    percentual: number;
+    atendimentos: number;
+    servicos: number;
+    base: number;
+    comissao: number;
+    naoRecebido: number;
+    comissaoNaoRecebida: number;
+    produtosValor: number;
+    produtosItens: number;
+  }[];
+  totais: {
+    base: number;
+    comissao: number;
+    naoRecebido: number;
+    comissaoNaoRecebida: number;
+    atendimentos: number;
+  };
+  semPercentual: string[];
+};
+
 const METHOD_LABEL: Record<string, string> = {
   pix: 'Pix',
   card: 'Cartão',
@@ -40,6 +65,7 @@ export default function FinanceiroPage() {
   const [range, setRange] = useState<'today' | 'week' | 'month'>('month');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [comissoes, setComissoes] = useState<Commissions | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
@@ -52,6 +78,13 @@ export default function FinanceiroPage() {
         `/expenses?from=${result.period.from}&to=${result.period.to}`
       );
       setExpenses(list.expenses);
+      // Separado do resto: se a comissão falhar, o Financeiro ainda abre. O
+      // dono precisa do caixa do dia mesmo quando um relatório novo quebra.
+      try {
+        setComissoes(await api.get<Commissions>(`/financial/commissions?range=${range}`));
+      } catch {
+        setComissoes(null);
+      }
     } catch (err) {
       toast.error(err instanceof ApiClientError ? err.message : 'Falha ao carregar');
     } finally {
@@ -192,6 +225,101 @@ export default function FinanceiroPage() {
                   O valor do produto entra no total do atendimento — aparece em Entradas quando o
                   cliente paga.
                 </p>
+              </section>
+            )}
+
+            {comissoes && comissoes.itens.length > 0 && (
+              <section className="card">
+                <div className="border-b border-ink-800 px-5 py-4">
+                  <h2 className="text-sm font-semibold text-ink-100">Comissões</h2>
+                  <p className="mt-0.5 text-xs text-ink-500">
+                    Sobre serviços realizados no período. Produto não entra na base.
+                  </p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] text-sm">
+                    <thead>
+                      <tr className="border-b border-ink-800 text-left text-xs uppercase tracking-wide text-ink-500">
+                        <th className="px-5 py-2.5 font-medium">Profissional</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Atend.</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Serviços</th>
+                        <th className="px-3 py-2.5 text-right font-medium">%</th>
+                        <th className="px-5 py-2.5 text-right font-medium">A receber</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-ink-800">
+                      {comissoes.itens.map((p) => (
+                        <tr key={p.id}>
+                          <td className="px-5 py-3">
+                            <span className="block text-ink-100">
+                              {p.nome}
+                              {!p.ativo && (
+                                <span className="ml-1.5 text-xs text-ink-500">(inativo)</span>
+                              )}
+                            </span>
+                            {p.produtosItens > 0 && (
+                              <span className="block text-xs text-ink-500">
+                                vendeu {money(p.produtosValor)} em produto ({p.produtosItens})
+                              </span>
+                            )}
+                          </td>
+                          <td className="tnum px-3 py-3 text-right text-ink-300">{p.atendimentos}</td>
+                          <td className="tnum px-3 py-3 text-right text-ink-300">{money(p.base)}</td>
+                          <td className="tnum px-3 py-3 text-right text-ink-300">
+                            {p.percentual === 0 && p.base > 0 ? (
+                              <span className="text-state-warn">0%</span>
+                            ) : (
+                              `${p.percentual}%`
+                            )}
+                          </td>
+                          <td className="px-5 py-3 text-right">
+                            <span className="tnum block text-ink-100">{money(p.comissao)}</span>
+                            {p.comissaoNaoRecebida > 0 && (
+                              <span className="tnum block text-xs text-state-warn">
+                                {money(p.comissaoNaoRecebida)} não recebido
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-ink-800 font-semibold">
+                        <td className="px-5 py-3 text-ink-300">Total</td>
+                        <td className="tnum px-3 py-3 text-right text-ink-300">
+                          {comissoes.totais.atendimentos}
+                        </td>
+                        <td className="tnum px-3 py-3 text-right text-ink-300">
+                          {money(comissoes.totais.base)}
+                        </td>
+                        <td />
+                        <td className="tnum px-5 py-3 text-right text-ink-100">
+                          {money(comissoes.totais.comissao)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                <div className="space-y-2 border-t border-ink-800 px-5 py-4 text-xs leading-relaxed text-ink-500">
+                  {comissoes.totais.comissaoNaoRecebida > 0 && (
+                    <p className="text-state-warn">
+                      {money(comissoes.totais.comissaoNaoRecebida)} do total é de atendimento
+                      ainda não pago — confira antes de acertar.
+                    </p>
+                  )}
+                  {comissoes.semPercentual.length > 0 && (
+                    <p>
+                      Sem percentual configurado: {comissoes.semPercentual.join(', ')}. Ajuste em
+                      Profissionais.
+                    </p>
+                  )}
+                  <p>
+                    Conta pela data do atendimento e só o que está concluído — quem marcou
+                    horário mas ainda não foi atendido não entra.
+                  </p>
+                </div>
               </section>
             )}
 

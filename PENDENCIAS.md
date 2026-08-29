@@ -78,18 +78,6 @@ estornar um pagamento de agendamento nem registrar a devolução do sinal.
 A venda avulsa já tem o caminho de desfazer (cancelar devolve o estoque e tira do caixa) —
 serve de modelo, mas o pagamento de agendamento é mais complicado porque pode ser parcial.
 
-### 7. Comissão de profissionais — *falta*
-`professionals.commission_percent` existe e é editável, mas nada calcula nem mostra. Falta
-o relatório de quanto cada profissional gerou e quanto tem a receber.
-
-### 8. Testes e2e se atrapalham quando rodam juntos — *risco*
-`npm run test:e2e` roda os arquivos em paralelo e o worker de `/api/v1/jobs/run` é global:
-ele varre os holds vencidos de **todos** os tenants. Duas suítes chamando o worker ao
-mesmo tempo roubam trabalho uma da outra, e o teste "o worker devolve o horário não pago"
-falha de vez em quando. Rodando o arquivo sozinho passa sempre.
-
-Conserto: dar escopo de tenant ao worker quando chamado pela API (o cron continua global).
-
 ---
 
 ## Baixa
@@ -127,6 +115,26 @@ aí sim precisa paginar e mover a busca para o servidor.
 ---
 
 ## Já resolvido (para não reabrir)
+
+- **Comissão de profissionais.** Financeiro → *Comissões*: quanto cada um gerou no período
+  e quanto tem a receber, com o total. Três decisões que mudam o número, e por isso estão
+  escritas na tela e no `getCommissionReport`: conta só atendimento **concluído** (comissão
+  se paga por serviço prestado, não por horário marcado); a base é o **serviço**, não o
+  produto (o percentual é um campo só, e aplicar o mesmo número ao xampu seria chute —
+  produto aparece como informação, fora da base); e conta pela **data do atendimento**,
+  igual a "serviços realizados". A coluna *não recebido* separa a fatia cuja consulta ainda
+  não foi paga — sem ela o dono acerta a comissão de dinheiro que não entrou. Só ADMIN,
+  como o resto do Financeiro. Quem trabalhou com 0% configurado aparece destacado. 4 testes
+  e2e mais o de papel.
+- **Worker com escopo de tenant.** `/api/v1/jobs/run?tenant=<uuid>` limita a rodada a uma
+  empresa; sem o parâmetro segue global, que é como o cron chama. Não é brecha: quem chega
+  lá já provou saber o `CRON_SECRET`, então já podia rodar no sistema inteiro — restringir
+  o alcance não concede nada. Era o que deixava `test:e2e` instável: os arquivos rodam em
+  paralelo e duas suítes chamando o worker roubavam trabalho uma da outra, então a segunda
+  recebia `reservasExpiradas: 0` e falhava sem nada estar quebrado (passava sempre rodando
+  sozinha, a assinatura clássica de corrida entre suítes). Os testes usam `rodarWorker()`
+  do helper. Tem regressão dos dois lados: com escopo a outra empresa não é tocada, sem
+  escopo ela cai.
 
 - **Rate limit agora é compartilhado.** `rateLimit` virou assíncrono e conta no Redis
   quando `UPSTASH_REDIS_REST_URL`/`_TOKEN` existem (aceita também os nomes
