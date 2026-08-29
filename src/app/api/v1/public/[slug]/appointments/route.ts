@@ -29,7 +29,7 @@ const schema = z.object({
  */
 export const POST = route(async (req: Request, { params }: { params: { slug: string } }) => {
   const ip = clientIp(req);
-  rateLimit(`booking:${ip}`, 10, 60_000);
+  await rateLimit(`booking:${ip}`, 10, 60_000);
 
   const tenant = await getTenantBySlug(params.slug);
   const settings = await getSettings(tenant.id);

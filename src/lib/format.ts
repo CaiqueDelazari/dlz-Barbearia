@@ -25,3 +25,23 @@ export function formatDateTimeBR(value: string | Date, timeZone?: string): strin
     timeZone,
   });
 }
+
+/**
+ * Aceita "@perfil", "perfil" ou a URL inteira colada do navegador.
+ *
+ * Quem preenche isso é o dono do estúdio, na tela de Configurações, e cada um
+ * digita de um jeito. Normalizar aqui é mais barato do que exigir um formato
+ * na hora de salvar e devolver erro para quem só queria colar o link.
+ */
+export function perfilInstagram(valor: string | null): { url: string; handle: string } | null {
+  const bruto = valor?.trim();
+  if (!bruto) return null;
+
+  const handle = bruto
+    .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+    .replace(/^@/, '')
+    .replace(/[/?#].*$/, '')
+    .trim();
+
+  return handle ? { url: `https://instagram.com/${handle}`, handle: `@${handle}` } : null;
+}

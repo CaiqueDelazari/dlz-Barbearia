@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { clientIp, ok, parseBody, route } from '@/lib/http';
+import { imageUrlSchema } from '@/lib/security';
 import { audit, requireRole } from '@/lib/auth';
 import { query, transaction } from '@/lib/db';
 import { getTenantContext } from '@/server/repositories/tenant.repo';
@@ -38,8 +39,8 @@ const schema = z.object({
       whatsapp: z.string().max(30).nullable().optional(),
       instagram: z.string().max(120).nullable().optional(),
       address: z.string().max(300).nullable().optional(),
-      logoUrl: z.string().url().nullable().optional(),
-      coverUrl: z.string().url().nullable().optional(),
+      logoUrl: imageUrlSchema.nullable().optional(),
+      coverUrl: imageUrlSchema.nullable().optional(),
       timezone: z.string().max(60).optional(),
     })
     .optional(),

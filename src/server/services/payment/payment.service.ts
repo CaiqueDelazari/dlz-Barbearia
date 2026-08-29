@@ -394,12 +394,23 @@ export async function registerManualPayment(input: {
   });
 }
 
+/**
+ * Status da cobranca para a tela de pagamento (sem sessao).
+ *
+ * O `manage_token` so sai quando o pagamento esta pago. Ele e a chave que
+ * permite ver, remarcar e cancelar o agendamento sem senha - entregar isso
+ * junto com o QR code do Pix significaria que basta conhecer o id da cobranca
+ * (que anda na URL, e URL vaza em Referer, em print e em historico) para
+ * controlar a reserva de outra pessoa sem nunca ter pago nada.
+ */
 export async function getPaymentPublic(paymentId: string) {
-  const payment = await queryOne(
+  const payment = await queryOne<Record<string, unknown> & { status: string }>(
     `SELECT p.id, p.amount::float8 AS amount, p.status, p.method, p.kind,
             p.checkout_url, p.qr_code, p.qr_code_base64, p.expires_at, p.booking_group_id,
-            (SELECT a.manage_token FROM appointments a
-              WHERE a.booking_group_id = p.booking_group_id AND a.manage_token IS NOT NULL LIMIT 1) AS manage_token
+            CASE WHEN p.status = 'paid' THEN (
+              SELECT a.manage_token FROM appointments a
+               WHERE a.booking_group_id = p.booking_group_id AND a.manage_token IS NOT NULL LIMIT 1
+            ) END AS manage_token
        FROM payments p WHERE p.id = $1`,
     [paymentId]
   );

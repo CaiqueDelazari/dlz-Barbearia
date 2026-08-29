@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ok, parseQuery, route } from '@/lib/http';
 import { requireAuth } from '@/lib/auth';
 import { getTenantContext } from '@/server/repositories/tenant.repo';
-import { getDashboard } from '@/server/services/dashboard.service';
+import { getDashboard, stripFinancials } from '@/server/services/dashboard.service';
 import { resolvePeriod } from '@/server/services/period';
 
 export const dynamic = 'force-dynamic';
@@ -18,5 +18,8 @@ export const GET = route(async (req: Request) => {
   const q = parseQuery(req, schema);
   const { tenant } = await getTenantContext(session.tenantId);
   const period = resolvePeriod(q.range ?? "today", tenant.timezone, q.from, q.to);
-  return ok(await getDashboard(session.tenantId, period));
+  const dashboard = await getDashboard(session.tenantId, period);
+
+  // STAFF ve a agenda do dia, nao o caixa da empresa
+  return ok(session.role === 'STAFF' ? stripFinancials(dashboard) : dashboard);
 });

@@ -5,6 +5,10 @@ import toast from 'react-hot-toast';
 import { Loader2, Phone, Search, UserPlus, X } from 'lucide-react';
 import { api, ApiClientError, money } from '@/lib/api-client';
 import { formatDateTimeBR, formatPhoneBR } from '@/lib/format';
+import { Pagination } from '@/components/admin/Pagination';
+
+/** Uma tela cheia de clientes; o resto vem pela navegação, nunca cortado em silêncio. */
+const POR_PAGINA = 50;
 
 type ClientRow = {
   id: string;
@@ -22,6 +26,7 @@ export default function ClientesPage() {
   const [search, setSearch] = useState('');
   const [items, setItems] = useState<ClientRow[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -30,14 +35,15 @@ export default function ClientesPage() {
     setLoading(true);
     try {
       const result = await api.get<{ items: ClientRow[]; total: number }>(
-        `/clients?limit=100${search ? `&search=${encodeURIComponent(search)}` : ''}`
+        `/clients?limit=${POR_PAGINA}&offset=${page * POR_PAGINA}` +
+          (search ? `&search=${encodeURIComponent(search)}` : '')
       );
       setItems(result.items);
       setTotal(result.total);
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, page]);
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 350 : 0);
@@ -49,7 +55,7 @@ export default function ClientesPage() {
       <header className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-ink-100">Clientes</h1>
-          <p className="text-sm text-ink-400">{total} cadastrado(s)</p>
+          <p className="text-sm text-ink-400">Ficha, histórico e gasto de cada um</p>
         </div>
         <button type="button" onClick={() => setCreating(true)} className="btn-primary">
           <UserPlus size={16} /> Novo
@@ -62,7 +68,10 @@ export default function ClientesPage() {
           className="input pl-9"
           placeholder="Buscar por nome ou telefone"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(0);
+          }}
         />
       </div>
 
@@ -96,6 +105,17 @@ export default function ClientesPage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {items.length > 0 && (
+        <Pagination
+          page={page}
+          pageSize={POR_PAGINA}
+          total={total}
+          onChange={setPage}
+          labelSingular="cliente cadastrado"
+          labelPlural="clientes cadastrados"
+        />
       )}
 
       {selectedId && <ClientDrawer id={selectedId} onClose={() => setSelectedId(null)} onChanged={load} />}

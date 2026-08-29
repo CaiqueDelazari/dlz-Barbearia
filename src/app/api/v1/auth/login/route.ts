@@ -13,6 +13,9 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+/** Hash valido de uma senha que ninguem tem, so para gastar o mesmo tempo de bcrypt. */
+const HASH_DESCARTAVEL = '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
+
 const schema = z.object({
   email: z.string().email('E-mail invalido'),
   password: z.string().min(1, 'Informe a senha'),
@@ -21,7 +24,7 @@ const schema = z.object({
 
 export const POST = route(async (req: Request) => {
   const ip = clientIp(req);
-  rateLimit(`login:${ip}`, 10, 5 * 60_000);
+  await rateLimit(`login:${ip}`, 10, 5 * 60_000);
 
   const body = await parseBody(req, schema);
 
@@ -56,9 +59,19 @@ export const POST = route(async (req: Request) => {
   }
 
   const user = candidates[0];
-  // mesma mensagem para usuario inexistente e senha errada
-  if (!user || !(await verifyPassword(body.password, user.password_hash))) {
-    rateLimit(`login-fail:${ip}`, 5, 5 * 60_000);
+
+  /**
+   * A mensagem ja era a mesma para e-mail inexistente e senha errada, mas o
+   * relogio entregava a diferenca: sem usuario nao havia bcrypt para rodar, e a
+   * resposta voltava em milissegundos. Comparando sempre contra um hash - o do
+   * usuario ou um descartavel - as duas respostas custam o mesmo, e o atacante
+   * deixa de conseguir listar quem tem conta aqui.
+   */
+  const hashParaComparar = user?.password_hash ?? HASH_DESCARTAVEL;
+  const senhaConfere = await verifyPassword(body.password, hashParaComparar);
+
+  if (!user || !senhaConfere) {
+    await rateLimit(`login-fail:${ip}`, 5, 5 * 60_000);
     throw ApiError.unauthorized('E-mail ou senha incorretos');
   }
 

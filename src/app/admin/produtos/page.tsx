@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import {
-  Loader2, Minus, Package, PackageX, Pencil, Plus, Search, Trash2, X,
+  Loader2, Minus, Package, PackageX, Pencil, Plus, Search, ShoppingBag, Trash2, X,
 } from 'lucide-react';
 import { api, ApiClientError, money } from '@/lib/api-client';
 import { formatDateTimeBR } from '@/lib/format';
+import { NewSaleDialog } from '@/components/admin/NewSaleDialog';
 
 type Product = {
   id: string;
@@ -24,6 +25,25 @@ type Product = {
   imageUrl: string | null;
   displayOrder: number;
   active: boolean;
+};
+
+type Sale = {
+  id: string;
+  total: number;
+  method: string;
+  clientName: string | null;
+  sellerName: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  items: { id: string; productName: string; quantity: number }[];
+};
+
+const METODO_LABEL: Record<string, string> = {
+  cash: 'Dinheiro',
+  pix: 'Pix',
+  card: 'Cartão',
+  transfer: 'Transferência',
+  other: 'Outro',
 };
 
 const EMPTY = {
@@ -46,12 +66,19 @@ export default function ProdutosPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [stockOf, setStockOf] = useState<Product | null>(null);
+  const [selling, setSelling] = useState(false);
+  const [sales, setSales] = useState<Sale[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await api.get<{ products: Product[] }>('/products');
-      setProducts(result.products);
+      const [catalogo, vendas] = await Promise.all([
+        api.get<{ products: Product[] }>('/products'),
+        // as últimas vendas de balcão bastam: o histórico completo é o financeiro
+        api.get<{ items: Sale[] }>('/sales?limit=8').catch(() => ({ items: [] as Sale[] })),
+      ]);
+      setProducts(catalogo.products);
+      setSales(vendas.items);
     } finally {
       setLoading(false);
     }
@@ -101,9 +128,19 @@ export default function ProdutosPage() {
           <h1 className="display text-2xl tracking-wide text-ink-100">Produtos</h1>
           <p className="text-sm text-ink-400">Revenda no balcão e controle de estoque</p>
         </div>
-        <button type="button" onClick={() => setEditing('new')} className="btn-primary">
-          <Plus size={16} strokeWidth={1.5} /> Novo produto
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSelling(true)}
+            disabled={!products.some((p) => p.active)}
+            className="btn-ghost"
+          >
+            <ShoppingBag size={16} strokeWidth={1.5} /> Venda avulsa
+          </button>
+          <button type="button" onClick={() => setEditing('new')} className="btn-primary">
+            <Plus size={16} strokeWidth={1.5} /> Novo produto
+          </button>
+        </div>
       </header>
 
       {products.length > 0 && (
@@ -235,6 +272,8 @@ export default function ProdutosPage() {
         </div>
       )}
 
+      {sales.length > 0 && <VendasAvulsas sales={sales} onChanged={load} />}
+
       {editing && (
         <ProductDialog
           product={editing === 'new' ? null : editing}
@@ -244,7 +283,77 @@ export default function ProdutosPage() {
         />
       )}
       {stockOf && <StockDialog product={stockOf} onClose={() => setStockOf(null)} onSaved={load} />}
+      {selling && (
+        <NewSaleDialog products={products} onClose={() => setSelling(false)} onSaved={load} />
+      )}
     </div>
+  );
+}
+
+// -------------------------------------------------------- vendas de balcão
+/**
+ * As últimas vendas fora do atendimento. Fica aqui, junto do estoque, porque é
+ * onde se percebe a diferença entre "vendi" e "o número não bate".
+ */
+function VendasAvulsas({ sales, onChanged }: { sales: Sale[]; onChanged: () => void }) {
+  const [cancelando, setCancelando] = useState<string | null>(null);
+
+  async function cancelar(sale: Sale) {
+    if (!confirm(`Cancelar a venda de ${money(sale.total)}? O estoque volta e o valor sai do caixa.`)) {
+      return;
+    }
+    setCancelando(sale.id);
+    try {
+      await api.delete(`/sales/${sale.id}`);
+      toast.success('Venda cancelada');
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : 'Não foi possível cancelar');
+    } finally {
+      setCancelando(null);
+    }
+  }
+
+  return (
+    <section className="rule pt-5">
+      <p className="eyebrow mb-2">Últimas vendas avulsas</p>
+      <ul className="divide-y divide-ink-800">
+        {sales.map((sale) => (
+          <li key={sale.id} className="flex items-center gap-3 py-3">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm text-ink-100">
+                {sale.items.map((i) => `${i.quantity}× ${i.productName}`).join(', ')}
+              </span>
+              <span className="block truncate text-xs text-ink-500">
+                {formatDateTimeBR(sale.createdAt)} · {METODO_LABEL[sale.method] ?? sale.method}
+                {sale.clientName ? ` · ${sale.clientName}` : ''}
+              </span>
+            </span>
+
+            {sale.cancelledAt ? (
+              <span className="badge shrink-0 text-ink-500">cancelada</span>
+            ) : (
+              <>
+                <span className="tnum shrink-0 text-sm text-ink-100">{money(sale.total)}</span>
+                <button
+                  type="button"
+                  disabled={cancelando === sale.id}
+                  onClick={() => cancelar(sale)}
+                  className="shrink-0 rounded-lg p-2 text-ink-400 transition-colors hover:text-state-bad disabled:opacity-40"
+                  aria-label="Cancelar venda"
+                >
+                  {cancelando === sale.id ? (
+                    <Loader2 size={15} className="animate-spin" strokeWidth={1.5} />
+                  ) : (
+                    <Trash2 size={15} strokeWidth={1.5} />
+                  )}
+                </button>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

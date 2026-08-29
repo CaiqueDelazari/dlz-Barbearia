@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 /** Consulta do cliente pelo link seguro - sem senha, com token de prazo limitado. */
 export const GET = route(async (req: Request, { params }: { params: { token: string } }) => {
-  rateLimit(`booking-view:${clientIp(req)}`, 60, 60_000);
+  await rateLimit(`booking-view:${clientIp(req)}`, 60, 60_000);
 
   const booking = await getBookingByToken(params.token);
   const [tenant, settings] = await Promise.all([
@@ -55,7 +55,7 @@ const patchSchema = z.object({
 
 export const PATCH = route(async (req: Request, { params }: { params: { token: string } }) => {
   const ip = clientIp(req);
-  rateLimit(`booking-change:${ip}`, 10, 60_000);
+  await rateLimit(`booking-change:${ip}`, 10, 60_000);
 
   const booking = await getBookingByToken(params.token);
   const body = await parseBody(req, patchSchema);
@@ -77,7 +77,7 @@ export const PATCH = route(async (req: Request, { params }: { params: { token: s
 
 export const DELETE = route(async (req: Request, { params }: { params: { token: string } }) => {
   const ip = clientIp(req);
-  rateLimit(`booking-cancel:${ip}`, 10, 60_000);
+  await rateLimit(`booking-cancel:${ip}`, 10, 60_000);
 
   const url = new URL(req.url);
   await cancelByClient({

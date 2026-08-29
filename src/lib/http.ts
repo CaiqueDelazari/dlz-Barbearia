@@ -103,38 +103,8 @@ export function clientIp(req: Request): string {
 }
 
 /**
- * Rate limit em memoria - suficiente para uma instancia e para conter abuso
- * bobo no fluxo publico. Em multi-instancia, trocar por Redis/Upstash mantendo
- * esta mesma assinatura.
+ * O limitador mora em `./rate-limit`. Fica reexportado aqui porque toda rota ja
+ * importa `rateLimit` junto de `ok`/`route`/`parseBody`, e trocar o caminho em
+ * quinze arquivos so mudaria a linha de import sem mudar nada de verdade.
  */
-const buckets = new Map<string, { count: number; resetAt: number }>();
-
-/**
- * Ajuste por ambiente, lido a cada chamada para dar para testar o mecanismo.
- *
- * O desligamento SÓ vale fora de producao: mesmo que a variavel vaze para o
- * ambiente de producao, o limite continua de pe.
- */
-function limiteConfig() {
-  const disabled =
-    process.env.RATE_LIMIT_DISABLED === 'true' && process.env.NODE_ENV !== 'production';
-  const factor = Math.max(1, Number(process.env.RATE_LIMIT_FACTOR) || 1);
-  return { disabled, factor };
-}
-
-export function rateLimit(key: string, limit: number, windowMs: number): void {
-  const { disabled, factor } = limiteConfig();
-  if (disabled) return;
-  const teto = Math.ceil(limit * factor);
-  const now = Date.now();
-  const bucket = buckets.get(key);
-  if (!bucket || bucket.resetAt < now) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return;
-  }
-  bucket.count++;
-  if (bucket.count > teto) throw ApiError.tooMany();
-  if (buckets.size > 5000) {
-    for (const [k, v] of buckets) if (v.resetAt < now) buckets.delete(k);
-  }
-}
+export { rateLimit, rateLimitBackend, resetRateLimitMemory } from './rate-limit';

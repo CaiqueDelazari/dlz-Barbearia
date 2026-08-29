@@ -13,7 +13,9 @@ let empresa: Empresa;
 let corte: { id: string; price: number; durationMinutes: number };
 
 let proximo = 40;
-const diaExclusivo = () => diaUtil((proximo += 2));
+// passo 4: `diaUtil` empurra fim de semana para a segunda, e com passo 2 dois
+// offsets vizinhos caem no mesmo dia sempre que o primeiro cai no sábado
+const diaExclusivo = () => diaUtil((proximo += 4));
 
 async function novoAtendimento(nome: string) {
   const dia = diaExclusivo();
@@ -101,6 +103,63 @@ describe('catálogo', () => {
     assert.equal(r.data.softDeleted, false);
     const sumiu = await empresa.api.get(`/products/${p.id}`);
     assert.equal(sumiu.status, 404);
+  });
+});
+
+describe('vitrine pública', () => {
+  test('mostra os ativos com o que o cliente precisa saber', async () => {
+    const produto = await criarProduto({
+      name: 'Xampu de vitrine', price: 145, costPrice: 92, stockQuantity: 7, category: 'Cabelo',
+    });
+
+    const r = await empresa.anon.get(`/public/${empresa.slug}/products`);
+    assert.equal(r.status, 200, JSON.stringify(r.error));
+
+    const item = r.data.products.find((p: any) => p.id === produto.id);
+    assert.ok(item, 'produto ativo precisa aparecer na página pública');
+    assert.equal(dinheiro(item.price), 145);
+    assert.equal(item.category, 'Cabelo');
+  });
+
+  test('não entrega custo nem estoque para quem está de fora', async () => {
+    // preço de custo é quanto o estúdio paga ao fornecedor e estoque é o giro
+    // do negócio: um SELECT * distraído entregaria os dois na URL pública
+    const r = await empresa.anon.get(`/public/${empresa.slug}/products`);
+
+    for (const item of r.data.products) {
+      for (const campo of Object.keys(item)) {
+        assert.ok(
+          !/cost|stock|track/i.test(campo),
+          `campo "${campo}" não pode sair na vitrine pública`
+        );
+      }
+    }
+  });
+
+  test('produto desativado some da vitrine', async () => {
+    const produto = await criarProduto({ name: 'Saiu de linha', price: 50, stockQuantity: 2 });
+
+    const antes = await empresa.anon.get(`/public/${empresa.slug}/products`);
+    assert.ok(antes.data.products.some((p: any) => p.id === produto.id));
+
+    await empresa.api.patch(`/products/${produto.id}`, { active: false });
+
+    const depois = await empresa.anon.get(`/public/${empresa.slug}/products`);
+    assert.ok(
+      !depois.data.products.some((p: any) => p.id === produto.id),
+      'o que foi desativado não pode continuar anunciado'
+    );
+  });
+
+  test('a vitrine de uma empresa não mostra produto de outra', async () => {
+    const outra = await criarEmpresa('vitrine-outra');
+    try {
+      const meu = await criarProduto({ name: 'Só meu', price: 30, stockQuantity: 1 });
+      const r = await outra.anon.get(`/public/${outra.slug}/products`);
+      assert.ok(!r.data.products.some((p: any) => p.id === meu.id));
+    } finally {
+      await outra.cleanup();
+    }
   });
 });
 

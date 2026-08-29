@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ApiError, clientIp, ok, parseBody, route } from '@/lib/http';
+import { imageUrlSchema } from '@/lib/security';
 import { audit, requireRole } from '@/lib/auth';
 import { query, queryOne } from '@/lib/db';
 
@@ -12,7 +13,7 @@ const SELECT = `id, name, bio, photo_url AS "photoUrl", phone,
 const schema = z.object({
   name: z.string().min(2).max(120).optional(),
   bio: z.string().max(500).nullable().optional(),
-  photoUrl: z.string().url().nullable().optional(),
+  photoUrl: imageUrlSchema.nullable().optional(),
   phone: z.string().max(30).nullable().optional(),
   commissionPercent: z.number().min(0).max(100).optional(),
   displayOrder: z.number().int().optional(),

@@ -19,7 +19,7 @@ const schema = z.object({
  */
 export const POST = route(async (req: Request) => {
   const ip = clientIp(req);
-  rateLimit(`checkout:${ip}`, 20, 60_000);
+  await rateLimit(`checkout:${ip}`, 20, 60_000);
 
   const body = await parseBody(req, schema);
   const booking = await getBookingByToken(body.manageToken);

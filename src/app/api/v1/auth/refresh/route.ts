@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { ApiError, ok, route } from '@/lib/http';
+import { ApiError, clientIp, ok, rateLimit, route } from '@/lib/http';
 import { query, queryOne } from '@/lib/db';
 import { env } from '@/lib/env';
 import {
@@ -15,6 +15,9 @@ export const dynamic = 'force-dynamic';
 
 /** Rotaciona o refresh token a cada uso: token usado e token queimado. */
 export const POST = route(async (req: Request) => {
+  // sem isto, um cookie roubado (ou chutado) pode ser testado a vontade
+  await rateLimit(`refresh:${clientIp(req)}`, 60, 5 * 60_000);
+
   const provided = cookies().get(REFRESH_COOKIE)?.value ?? '';
   if (!provided) throw ApiError.unauthorized('Sessao nao encontrada');
 

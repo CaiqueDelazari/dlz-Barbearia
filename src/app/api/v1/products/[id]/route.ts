@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ok, parseBody, route } from '@/lib/http';
+import { imageUrlSchema } from '@/lib/security';
 import { requireRole } from '@/lib/auth';
 import { deleteProduct, getProduct, stockHistory, updateProduct } from '@/server/services/product.service';
 
@@ -24,7 +25,7 @@ const schema = z.object({
   costPrice: z.number().min(0).optional(),
   trackStock: z.boolean().optional(),
   minStock: z.number().int().min(0).optional(),
-  imageUrl: z.string().url().nullable().optional(),
+  imageUrl: imageUrlSchema.nullable().optional(),
   displayOrder: z.number().int().optional(),
   active: z.boolean().optional(),
 });

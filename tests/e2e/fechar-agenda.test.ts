@@ -15,9 +15,16 @@ let corte: { id: string; price: number; durationMinutes: number };
 let dona: { id: string; name: string };
 let larissa: { id: string; name: string };
 
-/** Cada teste usa um dia próprio para não disputar horário com o vizinho. */
+/**
+ * Cada teste usa um dia próprio para não disputar horário com o vizinho.
+ *
+ * O passo é 4 e não 2 de propósito: `diaUtil` empurra fim de semana para a
+ * segunda, então dois offsets separados por 2 dias caem no MESMO dia sempre que
+ * o primeiro cai no sábado — e aí um teste bloqueia a agenda do outro. Com 4
+ * dias de intervalo o empurrão nunca alcança o vizinho.
+ */
 let proximo = 20;
-const diaExclusivo = () => diaUtil((proximo += 2));
+const diaExclusivo = () => diaUtil((proximo += 4));
 
 const horas = (slots: { time: string }[]) => slots.map((s) => s.time);
 

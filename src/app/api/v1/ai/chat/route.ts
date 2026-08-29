@@ -31,7 +31,7 @@ export const POST = route(async (req: Request) => {
   if (a.length !== b.length || !timingSafeEqual(a, b)) throw ApiError.unauthorized();
 
   const body = await parseBody(req, schema);
-  rateLimit(`ai:${body.session}:${body.phone}`, 20, 60_000);
+  await rateLimit(`ai:${body.session}:${body.phone}`, 20, 60_000);
 
   const tenant = await queryOne<{ id: string }>(
     `SELECT t.id FROM tenants t

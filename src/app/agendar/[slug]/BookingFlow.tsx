@@ -5,10 +5,12 @@ import Image from 'next/image';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import {
-  ArrowLeft, Check, ChevronRight, Clock, Loader2, MapPin, QrCode, Scissors,
+  ArrowLeft, Check, ChevronRight, Clock, Instagram, Loader2, MapPin, MapPinned, Package, QrCode,
+  Scissors,
 } from 'lucide-react';
 import { Calendar } from '@/components/Calendar';
 import { api, ApiClientError, shortMoney } from '@/lib/api-client';
+import { perfilInstagram } from '@/lib/format';
 import { addDays, formatDateLong, humanDuration, todayInTz } from '@/lib/datetime';
 
 // ---------------------------------------------------------------- contratos
@@ -28,6 +30,7 @@ type TenantInfo = {
   slug: string;
   name: string;
   address: string | null;
+  instagram: string | null;
   logoUrl: string | null;
   timezone: string;
 };
@@ -61,14 +64,32 @@ type DayAvailability = {
   perService?: { serviceId: string; name: string; durationMinutes: number; price: number; slots: Slot[] }[];
 };
 
+/**
+ * Produto na vitrine. Sem duração, sem estoque e sem preço de custo: nada disso
+ * é assunto de quem está do lado de fora, e aqui não se vende — só se mostra.
+ */
+type Product = {
+  id: string;
+  name: string;
+  description: string | null;
+  brand: string | null;
+  category: string | null;
+  price: number;
+  imageUrl: string | null;
+};
+
 type Props = {
   tenant: TenantInfo;
   services: Service[];
   professionals: Professional[];
+  products: Product[];
   config: BookingConfig;
 };
 
 type Step = 'services' | 'professional' | 'datetime' | 'contact' | 'payment' | 'done';
+
+/** Chave da aba de vitrine — nunca colide com nome de categoria de verdade. */
+const ABA_PRODUTOS = '__produtos__';
 
 const STEP_ORDER: Step[] = ['services', 'datetime', 'contact', 'payment'];
 
@@ -90,7 +111,7 @@ const hhmm = (iso: string, timeZone: string) =>
   new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone });
 
 // ==========================================================================
-export function BookingFlow({ tenant, services, professionals, config }: Props) {
+export function BookingFlow({ tenant, services, professionals, products, config }: Props) {
   const today = useMemo(() => todayInTz(tenant.timezone), [tenant.timezone]);
   const maxDate = useMemo(() => addDays(today, config.maxAdvanceDays), [today, config.maxAdvanceDays]);
 
@@ -142,8 +163,19 @@ export function BookingFlow({ tenant, services, professionals, config }: Props) 
     return found;
   }, [services]);
 
+  /**
+   * A vitrine é uma aba a mais, não uma categoria de serviço.
+   *
+   * Fica com chave própria (`__produtos__`) porque o resto da tela raciocina em
+   * cima de `visibleServices`: se produto entrasse como categoria, "Tudo"
+   * passaria a misturar coisa que se agenda com coisa que não se agenda, e o
+   * rodapé somaria duração de um xampu.
+   */
+  const temVitrine = products.length > 0;
+  const mostrandoVitrine = tab === ABA_PRODUTOS;
+
   const visibleServices = useMemo(() => {
-    if (tab === '__all__') return services;
+    if (tab === '__all__' || tab === ABA_PRODUTOS) return services;
     return services.filter((s) => (s.category?.trim() || SEM_CATEGORIA) === tab);
   }, [services, tab]);
 
@@ -363,7 +395,7 @@ export function BookingFlow({ tenant, services, professionals, config }: Props) 
         {/* -------------------------------------------------------- serviços */}
         {step === 'services' && (
           <section className="animate-fade-up">
-            {categories.length > 1 && (
+            {(categories.length > 1 || temVitrine) && (
               <nav className="scroll-x mb-4 border-b border-ink-800" aria-label="Categorias">
                 <button
                   type="button"
@@ -382,15 +414,27 @@ export function BookingFlow({ tenant, services, professionals, config }: Props) 
                     {category}
                   </button>
                 ))}
+                {temVitrine && (
+                  <button
+                    type="button"
+                    onClick={() => setTab(ABA_PRODUTOS)}
+                    className={clsx('tab', mostrandoVitrine && 'tab-active')}
+                  >
+                    Produtos
+                  </button>
+                )}
               </nav>
             )}
 
-            {visibleServices.length === 0 && (
+            {mostrandoVitrine && <Vitrine products={products} />}
+
+            {!mostrandoVitrine && visibleServices.length === 0 && (
               <p className="py-16 text-center text-sm text-ink-400">
                 Nenhum serviço nesta categoria.
               </p>
             )}
 
+            {!mostrandoVitrine && (
             <ul className="divide-y divide-ink-800">
               {visibleServices.map((service) => {
                 const isSelected = selectedIds.includes(service.id);
@@ -444,6 +488,9 @@ export function BookingFlow({ tenant, services, professionals, config }: Props) 
                 );
               })}
             </ul>
+            )}
+
+            <ContatoRodape tenant={tenant} />
           </section>
         )}
 
@@ -917,6 +964,117 @@ function Resumo({
         <span className="eyebrow">Total · {humanDuration(totalDuration)}</span>
         <span className="tnum text-lg text-ink-100">{shortMoney(totalAmount)}</span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Vitrine: o que o estúdio revende.
+ *
+ * Não tem botão de adicionar de propósito — foi decidido que aqui é mostruário,
+ * não loja. Produto não tem duração e tem estoque, então deixá-lo entrar no
+ * agendamento significaria segurar a prateleira por conta de uma reserva que
+ * ainda pode expirar. Aqui o cliente descobre que existe; a venda acontece no
+ * balcão, onde o estoque baixa de verdade.
+ */
+function Vitrine({ products }: { products: Product[] }) {
+  const grupos = new Map<string, Product[]>();
+  for (const product of products) {
+    const chave = product.category?.trim() || 'Outros';
+    const atual = grupos.get(chave);
+    if (atual) atual.push(product);
+    else grupos.set(chave, [product]);
+  }
+
+  return (
+    <div className="animate-fade-up">
+      <p className="mb-5 text-center text-xs leading-relaxed text-ink-500">
+        O que usamos e revendemos. Peça no balcão no dia do seu horário.
+      </p>
+
+      {[...grupos].map(([categoria, itens]) => (
+        <section key={categoria} className="mb-6">
+          {grupos.size > 1 && <p className="eyebrow mb-2">{categoria}</p>}
+
+          <ul className="divide-y divide-ink-800">
+            {itens.map((product) => (
+              <li key={product.id} className="flex items-center gap-4 py-4">
+                <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-ink-850">
+                  {product.imageUrl ? (
+                    <Image src={product.imageUrl} alt="" fill sizes="56px" className="object-cover" />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center">
+                      <Package size={17} strokeWidth={1.25} className="text-ink-500" />
+                    </span>
+                  )}
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] text-ink-100">{product.name}</span>
+                  {(product.brand || product.description) && (
+                    <span className="eyebrow mt-1 block truncate normal-case tracking-wider text-ink-400">
+                      {product.brand ?? product.description}
+                    </span>
+                  )}
+                </span>
+
+                <span className="tnum shrink-0 text-[15px] text-ink-200">
+                  {shortMoney(product.price)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Onde fica e onde ver o trabalho — as duas perguntas que sobram depois de
+ * escolher o serviço.
+ *
+ * Nada aqui é fixo no código: sai de `tenants.address` e `tenants.instagram`,
+ * que o dono preenche em Configurações. Empresa que não preencheu não mostra o
+ * ícone, em vez de mostrar um link quebrado.
+ */
+function ContatoRodape({ tenant }: { tenant: TenantInfo }) {
+  const mapa = tenant.address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(tenant.address)}`
+    : null;
+  const instagram = perfilInstagram(tenant.instagram);
+
+  if (!mapa && !instagram) return null;
+
+  const link =
+    'flex h-11 w-11 items-center justify-center text-ink-300 transition-colors hover:text-bone';
+
+  return (
+    <div className="rule mt-10 flex items-center justify-center gap-6 pt-7">
+      {mapa && (
+        <a
+          href={mapa}
+          target="_blank"
+          rel="noreferrer noopener"
+          className={link}
+          title={tenant.address ?? undefined}
+          aria-label={`Como chegar — ${tenant.address}`}
+        >
+          <MapPinned size={24} strokeWidth={1.25} />
+        </a>
+      )}
+      {instagram && (
+        <a
+          href={instagram.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          className={link}
+          title={instagram.handle}
+          aria-label={`Instagram ${instagram.handle}`}
+        >
+          <Instagram size={24} strokeWidth={1.25} />
+        </a>
+      )}
     </div>
   );
 }

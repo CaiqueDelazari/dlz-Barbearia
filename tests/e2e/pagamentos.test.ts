@@ -196,6 +196,37 @@ describe('cobrança e confirmação', () => {
   });
 });
 
+describe('consulta pública da cobrança', () => {
+  test('o link de gerenciar só sai depois que o pagamento cai', async () => {
+    const reserva = await reservar('Token Guardado', '11911110009');
+    const checkout = await empresa.anon.post('/payments/checkout', {
+      manageToken: reserva.manageToken, mode: 'deposit', method: 'pix',
+    });
+    const paymentId = checkout.data.paymentId;
+
+    // A tela de pagamento consulta esta rota sem sessão, e o id anda na URL.
+    // Entregar o manage_token antes de pagar daria controle da reserva de
+    // outra pessoa a quem só viu o endereço num print ou no Referer.
+    const antes = await empresa.anon.get(`/payments/${paymentId}`);
+    assert.equal(antes.status, 200);
+    assert.equal(antes.data.payment.status, 'pending');
+    assert.ok(!antes.data.payment.manage_token, 'token não pode sair antes do pagamento');
+    assert.ok(antes.data.payment.qr_code !== undefined, 'o que a tela precisa continua vindo');
+
+    await webhook(paymentId, 'paid', `evt-token-${paymentId}`);
+
+    const depois = await empresa.anon.get(`/payments/${paymentId}`);
+    assert.equal(depois.data.payment.status, 'paid');
+    assert.ok(depois.data.payment.manage_token, 'pagou, recebe o link de gerenciar');
+  });
+
+  test('id fora do formato não vira erro de banco', async () => {
+    const r = await empresa.anon.get('/payments/isso-nao-e-uuid');
+    assert.equal(r.status, 400);
+    assert.equal(r.error?.code, 'validation_error');
+  });
+});
+
 describe('pagamento presencial', () => {
   test('registrar no balcão quita o restante', async () => {
     const reserva = await reservarPeloPainel('Balcão', '11911110008');

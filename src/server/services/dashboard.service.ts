@@ -83,14 +83,24 @@ export async function getDashboard(tenantId: string, period?: Partial<Period>) {
         ORDER BY a.starts_at LIMIT 8`,
       [tenantId]
     ),
-    // produtos vendidos no período (entram no total do atendimento)
+    // Produtos vendidos no período, das duas portas: dentro do atendimento (pela
+    // data do atendimento) e no balcão sem agendamento (pela data da venda).
     queryOne<{ total: number; itens: number }>(
-      `SELECT COALESCE(sum(ap.total), 0)::float8 AS total,
-              COALESCE(sum(ap.quantity), 0)::int AS itens
-         FROM appointment_products ap
-         JOIN appointments a ON a.id = ap.appointment_id
-        WHERE ap.tenant_id = $1 AND a.starts_at >= $2 AND a.starts_at < $3
-          AND a.status IN ('confirmed','completed')`,
+      `SELECT COALESCE(sum(total), 0)::float8 AS total,
+              COALESCE(sum(quantidade), 0)::int AS itens
+         FROM (
+           SELECT ap.total, ap.quantity AS quantidade
+             FROM appointment_products ap
+             JOIN appointments a ON a.id = ap.appointment_id
+            WHERE ap.tenant_id = $1 AND a.starts_at >= $2 AND a.starts_at < $3
+              AND a.status IN ('confirmed','completed')
+           UNION ALL
+           SELECT si.total, si.quantity AS quantidade
+             FROM product_sale_items si
+             JOIN product_sales s ON s.id = si.sale_id
+            WHERE si.tenant_id = $1 AND s.created_at >= $2 AND s.created_at < $3
+              AND s.cancelled_at IS NULL
+         ) vendidos`,
       [tenantId, start, end]
     ),
     query(
@@ -137,6 +147,35 @@ export async function getDashboard(tenantId: string, period?: Partial<Period>) {
   };
 }
 
+/**
+ * Tira do dashboard tudo que e dinheiro.
+ *
+ * `/financial/summary` sempre exigiu ADMIN, mas o dashboard entregava
+ * faturamento, despesas, resultado e ticket medio para qualquer sessao - entao
+ * bastava a um STAFF abrir a pagina inicial para ver exatamente o que a tela de
+ * Financeiro escondia dele. A regra de quem ve dinheiro passa a ser uma so.
+ */
+export function stripFinancials<T extends { cards: Record<string, unknown> }>(dashboard: T): T {
+  const {
+    faturamentoPrevisto: _a,
+    recebido: _b,
+    pendente: _c,
+    despesas: _d,
+    resultado: _e,
+    ticketMedio: _f,
+    produtos: _g,
+    ...cards
+  } = dashboard.cards;
+
+  return {
+    ...dashboard,
+    cards,
+    servicos: [],
+    porDia: [],
+    despesasRecentes: [],
+  };
+}
+
 export async function getFinancialSummary(tenantId: string, period?: Partial<Period>) {
   const { from, to, start, end } = await resolveRange(tenantId, period);
 
@@ -168,13 +207,23 @@ export async function getFinancialSummary(tenantId: string, period?: Partial<Per
       [tenantId, from, to]
     ),
     query(
-      `SELECT ap.product_name AS produto, sum(ap.quantity)::int AS quantidade,
-              sum(ap.total)::float8 AS total
-         FROM appointment_products ap
-         JOIN appointments a ON a.id = ap.appointment_id
-        WHERE ap.tenant_id = $1 AND a.starts_at >= $2 AND a.starts_at < $3
-          AND a.status IN ('confirmed','completed')
-        GROUP BY ap.product_name ORDER BY total DESC`,
+      `SELECT produto, sum(quantidade)::int AS quantidade, sum(total)::float8 AS total,
+              sum(avulso)::int AS avulsos
+         FROM (
+           SELECT ap.product_name AS produto, ap.quantity AS quantidade, ap.total, 0 AS avulso
+             FROM appointment_products ap
+             JOIN appointments a ON a.id = ap.appointment_id
+            WHERE ap.tenant_id = $1 AND a.starts_at >= $2 AND a.starts_at < $3
+              AND a.status IN ('confirmed','completed')
+           UNION ALL
+           SELECT si.product_name AS produto, si.quantity AS quantidade, si.total,
+                  si.quantity AS avulso
+             FROM product_sale_items si
+             JOIN product_sales s ON s.id = si.sale_id
+            WHERE si.tenant_id = $1 AND s.created_at >= $2 AND s.created_at < $3
+              AND s.cancelled_at IS NULL
+         ) vendidos
+        GROUP BY produto ORDER BY total DESC`,
       // só os parâmetros que a query usa: o Postgres não infere tipo de placeholder solto
       [tenantId, start, end]
     ),

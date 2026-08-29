@@ -11,7 +11,7 @@ async function loadPage(slug: string) {
     const tenant = await getTenantBySlug(slug);
     const settings = await getSettings(tenant.id);
 
-    const [services, professionals] = await Promise.all([
+    const [services, professionals, products] = await Promise.all([
       query(
         `SELECT id, name, description, price::float8 AS price,
                 duration_minutes AS "durationMinutes", image_url AS "imageUrl", category
@@ -25,9 +25,19 @@ async function loadPage(slug: string) {
            ORDER BY display_order, name`,
         [tenant.id]
       ),
+      // vitrine: o cliente vê o que o estúdio revende e pede no balcão.
+      // `cost_price` e `stock_quantity` ficam de fora — não são assunto de
+      // quem está do lado de fora.
+      query(
+        `SELECT id, name, description, brand, category,
+                price::float8 AS price, image_url AS "imageUrl"
+           FROM products WHERE tenant_id = $1 AND active
+           ORDER BY display_order, name`,
+        [tenant.id]
+      ),
     ]);
 
-    return { tenant, settings, services, professionals };
+    return { tenant, settings, services, professionals, products };
   } catch {
     return null;
   }
@@ -50,7 +60,7 @@ export default async function AgendarPage({ params }: { params: { slug: string }
   const data = await loadPage(params.slug);
   if (!data) notFound();
 
-  const { tenant, settings, services, professionals } = data;
+  const { tenant, settings, services, professionals, products } = data;
 
   return (
     <BookingFlow
@@ -58,11 +68,13 @@ export default async function AgendarPage({ params }: { params: { slug: string }
         slug: tenant.slug,
         name: tenant.name,
         address: tenant.address,
+        instagram: tenant.instagram,
         logoUrl: tenant.logo_url,
         timezone: tenant.timezone,
       }}
       services={services as never}
       professionals={professionals as never}
+      products={products as never}
       config={{
         depositPercent: Number(settings.deposit_percent),
         allowDeposit: settings.allow_deposit,

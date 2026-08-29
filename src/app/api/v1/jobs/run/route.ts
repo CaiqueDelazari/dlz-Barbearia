@@ -7,10 +7,16 @@ import { dispatchDueNotifications, scheduleReturnReminders } from '@/server/serv
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+/**
+ * So aceita o segredo no cabecalho. Aceitar `?secret=` era pratico e caro: query
+ * string entra em log de acesso, em Referer e no historico do navegador, entao o
+ * segredo do cron vazaria em texto puro em lugares que ninguem audita. O Vercel
+ * Cron ja manda `Authorization: Bearer $CRON_SECRET` sozinho.
+ */
 function assertCronSecret(req: Request): void {
   if (!env.cronSecret) throw ApiError.forbidden('CRON_SECRET nao configurado');
   const header = req.headers.get('authorization') ?? '';
-  const provided = header.startsWith('Bearer ') ? header.slice(7) : new URL(req.url).searchParams.get('secret') ?? '';
+  const provided = header.startsWith('Bearer ') ? header.slice(7) : '';
   const a = Buffer.from(provided);
   const b = Buffer.from(env.cronSecret);
   if (a.length !== b.length || !timingSafeEqual(a, b)) throw ApiError.forbidden('Segredo invalido');

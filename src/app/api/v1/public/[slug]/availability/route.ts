@@ -17,7 +17,7 @@ const schema = z.object({
  * `month` devolve quais dias tem vaga (alimenta o calendario).
  */
 export const GET = route(async (req: Request, { params }: { params: { slug: string } }) => {
-  rateLimit(`avail:${clientIp(req)}`, 120, 60_000);
+  await rateLimit(`avail:${clientIp(req)}`, 120, 60_000);
 
   const tenant = await getTenantBySlug(params.slug);
   const q = parseQuery(req, schema);

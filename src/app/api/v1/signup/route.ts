@@ -18,7 +18,7 @@ const schema = z.object({
 /** Cadastro de uma nova empresa no SaaS. */
 export const POST = route(async (req: Request) => {
   const ip = clientIp(req);
-  rateLimit(`signup:${ip}`, 5, 60 * 60_000);
+  await rateLimit(`signup:${ip}`, 5, 60 * 60_000);
 
   const body = await parseBody(req, schema);
   const result = await createTenant(body);

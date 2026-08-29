@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ok, parseBody, parseQuery, route } from '@/lib/http';
+import { imageUrlSchema } from '@/lib/security';
 import { requireRole } from '@/lib/auth';
 import { createProduct, listProducts } from '@/server/services/product.service';
 
@@ -32,7 +33,7 @@ const schema = z.object({
   trackStock: z.boolean().optional(),
   stockQuantity: z.number().int().min(0).optional(),
   minStock: z.number().int().min(0).optional(),
-  imageUrl: z.string().url().nullable().optional(),
+  imageUrl: imageUrlSchema.nullable().optional(),
   displayOrder: z.number().int().optional(),
 });
 

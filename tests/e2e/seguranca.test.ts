@@ -193,6 +193,53 @@ describe('papéis', () => {
     );
   });
 
+  test('STAFF não enxerga o caixa da empresa pelo dashboard', async () => {
+    const staff = await usuarioCom(alfa, 'STAFF');
+
+    // a porta da frente já era fechada
+    assert.equal((await staff.get('/financial/summary')).status, 403);
+
+    // e a porta dos fundos também precisa estar
+    const painel = await staff.get('/dashboard');
+    assert.equal(painel.status, 200, 'a agenda do dia continua sendo o trabalho dele');
+
+    for (const campo of ['recebido', 'faturamentoPrevisto', 'despesas', 'resultado', 'ticketMedio']) {
+      assert.ok(
+        !(campo in painel.data.cards),
+        `${campo} não pode chegar a quem não pode abrir o Financeiro`
+      );
+    }
+    assert.ok('agendamentosHoje' in painel.data.cards, 'o que é agenda continua vindo');
+    assert.deepEqual(painel.data.porDia, [], 'faturamento por dia é dinheiro');
+
+    const dono = await alfa.api.get('/dashboard');
+    assert.ok('recebido' in dono.data.cards, 'para o dono nada muda');
+  });
+
+  test('STAFF vende no balcão mas não tira venda do caixa', async () => {
+    const staff = await usuarioCom(alfa, 'STAFF');
+
+    const produto = await alfa.api.post('/products', {
+      name: 'Xampu do papel', price: 50, stockQuantity: 5,
+    });
+    assert.equal(produto.status, 201);
+
+    const venda = await staff.post('/sales', {
+      items: [{ productId: produto.data.product.id, quantity: 1 }],
+      method: 'cash',
+    });
+    assert.equal(venda.status, 201, 'registrar venda é trabalho de balcão');
+
+    const cancelar = await staff.del(`/sales/${venda.data.sale.id}`);
+    assert.equal(cancelar.status, 403, 'tirar dinheiro do caixa é de ADMIN para cima');
+
+    assert.equal(
+      (await alfa.api.del(`/sales/${venda.data.sale.id}`)).status,
+      200,
+      'o dono cancela'
+    );
+  });
+
   test('ADMIN administra a operação', async () => {
     const admin = await usuarioCom(alfa, 'ADMIN');
 
@@ -223,6 +270,33 @@ describe('validação de entrada', () => {
     assert.ok(r.error, 'precisa responder erro tratado, não corpo vazio');
   });
 
+  test('URL de imagem apontando para dentro da rede é recusada', async () => {
+    // o servidor busca essa URL para otimizar a imagem; sem a trava, o painel
+    // vira proxy para o endpoint de metadados da nuvem
+    const internas = [
+      'http://exemplo.com/logo.png',
+      'https://169.254.169.254/latest/meta-data/',
+      'https://localhost/logo.png',
+      'https://127.0.0.1/logo.png',
+      'https://10.0.0.5/logo.png',
+      'https://192.168.0.10/logo.png',
+    ];
+
+    for (const url of internas) {
+      const r = await alfa.api.post('/services', {
+        name: 'Com imagem', price: 10, durationMinutes: 30, imageUrl: url,
+      });
+      assert.equal(r.status, 400, `${url} não pode ser aceita`);
+      assert.equal(r.error?.code, 'validation_error');
+    }
+
+    const ok = await alfa.api.post('/services', {
+      name: 'Imagem pública', price: 10, durationMinutes: 30,
+      imageUrl: 'https://exemplo.com/foto.png',
+    });
+    assert.equal(ok.status, 201, 'https público continua funcionando');
+  });
+
   test('corpo sem JSON é recusado com mensagem clara', async () => {
     const r = await fetch(`${BASE}/api/v1/clients`, {
       method: 'POST',
@@ -245,6 +319,15 @@ describe('worker', () => {
       headers: { authorization: 'Bearer segredo-errado' },
     });
     assert.equal(errado.status, 403);
+  });
+
+  test('o segredo não é aceito pela query string', async () => {
+    // query string entra em log de acesso e em Referer; segredo ali é segredo vazado
+    const r = await fetch(
+      `${BASE}/api/v1/jobs/run?secret=${encodeURIComponent(process.env.CRON_SECRET ?? '')}`,
+      { method: 'POST' }
+    );
+    assert.equal(r.status, 403, 'só o cabeçalho Authorization vale');
   });
 
   test('com o segredo certo roda e devolve o resumo', async () => {

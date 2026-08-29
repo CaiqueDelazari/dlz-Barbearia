@@ -6,6 +6,10 @@ import { Loader2, Search } from 'lucide-react';
 import { api, money } from '@/lib/api-client';
 import { formatDateTimeBR } from '@/lib/format';
 import { AppointmentDetails, STATUS_META, type AdminAppointment } from '@/components/admin/AppointmentDetails';
+import { Pagination } from '@/components/admin/Pagination';
+
+/** Uma tela cheia de agendamentos sem virar rolagem infinita. */
+const POR_PAGINA = 50;
 
 const STATUSES = [
   { value: '', label: 'Todos' },
@@ -23,12 +27,16 @@ export default function AgendamentosPage() {
   const [to, setTo] = useState('');
   const [items, setItems] = useState<AdminAppointment[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<AdminAppointment | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ limit: '100' });
+    const params = new URLSearchParams({
+      limit: String(POR_PAGINA),
+      offset: String(page * POR_PAGINA),
+    });
     if (status) params.set('status', status);
     if (search) params.set('search', search);
     if (from) params.set('from', new Date(`${from}T00:00:00`).toISOString());
@@ -41,7 +49,7 @@ export default function AgendamentosPage() {
     } finally {
       setLoading(false);
     }
-  }, [status, search, from, to]);
+  }, [status, search, from, to, page]);
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 350 : 0);
@@ -52,7 +60,7 @@ export default function AgendamentosPage() {
     <div className="space-y-5">
       <header>
         <h1 className="text-xl font-semibold text-ink-100">Agendamentos</h1>
-        <p className="text-sm text-ink-400">{total} registro(s)</p>
+        <p className="text-sm text-ink-400">Histórico completo, com filtro por período e situação</p>
       </header>
 
       <div className="card space-y-3 p-4">
@@ -62,7 +70,10 @@ export default function AgendamentosPage() {
             className="input pl-9"
             placeholder="Buscar por cliente ou telefone"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
           />
         </div>
 
@@ -71,7 +82,10 @@ export default function AgendamentosPage() {
             <button
               key={s.value}
               type="button"
-              onClick={() => setStatus(s.value)}
+              onClick={() => {
+                setStatus(s.value);
+                setPage(0);
+              }}
               className={clsx(
                 'rounded-lg border px-3 py-1.5 text-sm transition-colors',
                 status === s.value
@@ -87,11 +101,27 @@ export default function AgendamentosPage() {
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="label">De</label>
-            <input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <input
+              type="date"
+              className="input"
+              value={from}
+              onChange={(e) => {
+                setFrom(e.target.value);
+                setPage(0);
+              }}
+            />
           </div>
           <div>
             <label className="label">Até</label>
-            <input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
+            <input
+              type="date"
+              className="input"
+              value={to}
+              onChange={(e) => {
+                setTo(e.target.value);
+                setPage(0);
+              }}
+            />
           </div>
         </div>
       </div>
@@ -137,6 +167,17 @@ export default function AgendamentosPage() {
             );
           })}
         </ul>
+      )}
+
+      {items.length > 0 && (
+        <Pagination
+          page={page}
+          pageSize={POR_PAGINA}
+          total={total}
+          onChange={setPage}
+          labelSingular="agendamento"
+          labelPlural="agendamentos"
+        />
       )}
 
       {selected && (

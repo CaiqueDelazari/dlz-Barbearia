@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ok, parseQuery, route } from '@/lib/http';
+import { clientIp, ok, parseQuery, rateLimit, route } from '@/lib/http';
 import { query } from '@/lib/db';
 import { getTenantBySlug } from '@/server/repositories/tenant.repo';
 import { professionalsForServices } from '@/server/services/availability.service';
@@ -10,6 +10,8 @@ const schema = z.object({ services: z.string().optional() });
 
 /** Profissionais que atendem os servicos escolhidos (ou todos, se nao houver filtro). */
 export const GET = route(async (req: Request, { params }: { params: { slug: string } }) => {
+  await rateLimit(`public-professionals:${clientIp(req)}`, 120, 60_000);
+
   const tenant = await getTenantBySlug(params.slug);
   const { services } = parseQuery(req, schema);
   const serviceIds = services ? services.split(',').filter(Boolean) : [];

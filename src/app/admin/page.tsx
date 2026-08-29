@@ -64,6 +64,13 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, [range]);
 
+  /**
+   * Quem não pode abrir o Financeiro também não recebe os números de dinheiro
+   * aqui — a API os omite. Mostrar "R$ 0,00" seria pior que esconder: pareceria
+   * um dia sem faturamento em vez de um dado que não é daquele usuário.
+   */
+  const mostraDinheiro = !!data && 'recebido' in data.cards;
+
   useEffect(() => {
     load();
   }, [load]);
@@ -91,9 +98,11 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
-          <button type="button" onClick={() => setLancando(true)} className="btn-primary">
-            <Plus size={16} strokeWidth={1.5} /> Despesa
-          </button>
+          {mostraDinheiro && (
+            <button type="button" onClick={() => setLancando(true)} className="btn-primary">
+              <Plus size={16} strokeWidth={1.5} /> Despesa
+            </button>
+          )}
         </div>
       </header>
 
@@ -111,26 +120,30 @@ export default function DashboardPage() {
                 value={String(data.cards.agendamentosHoje)}
                 hint={`${data.cards.agendamentosPeriodo} no período`}
               />
-              <Card
-                icon={Wallet}
-                label="Recebido"
-                value={money(data.cards.recebido)}
-                hint={`${money(data.cards.pendente)} a receber`}
-                tone="brand"
-              />
-              <Card
-                icon={TrendingDown}
-                label="Despesas"
-                value={money(data.cards.despesas)}
-                hint={`Ticket médio ${money(data.cards.ticketMedio)}`}
-              />
-              <Card
-                icon={TrendingUp}
-                label="Resultado"
-                value={money(data.cards.resultado)}
-                hint="Recebido − despesas"
-                tone={data.cards.resultado >= 0 ? 'brand' : 'danger'}
-              />
+              {mostraDinheiro && (
+                <>
+                  <Card
+                    icon={Wallet}
+                    label="Recebido"
+                    value={money(data.cards.recebido)}
+                    hint={`${money(data.cards.pendente)} a receber`}
+                    tone="brand"
+                  />
+                  <Card
+                    icon={TrendingDown}
+                    label="Despesas"
+                    value={money(data.cards.despesas)}
+                    hint={`Ticket médio ${money(data.cards.ticketMedio)}`}
+                  />
+                  <Card
+                    icon={TrendingUp}
+                    label="Resultado"
+                    value={money(data.cards.resultado)}
+                    hint="Recebido − despesas"
+                    tone={data.cards.resultado >= 0 ? 'brand' : 'danger'}
+                  />
+                </>
+              )}
             </section>
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -140,8 +153,8 @@ export default function DashboardPage() {
               <MiniCard
                 icon={Package}
                 label="Produtos vendidos"
-                value={money(data.cards.produtos)}
-                hint={`${data.cards.produtosItens} item(ns)`}
+                value={mostraDinheiro ? money(data.cards.produtos) : String(data.cards.produtosItens)}
+                hint={mostraDinheiro ? `${data.cards.produtosItens} item(ns)` : 'item(ns)'}
                 tone="ok"
               />
             </section>
@@ -207,6 +220,7 @@ export default function DashboardPage() {
 
             <div className="grid gap-4 lg:grid-cols-2">
               {/* ------------------------------------------------ despesas */}
+              {mostraDinheiro && (
               <section className="card p-5">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <h2 className="text-sm text-ink-100">Despesas</h2>
@@ -246,6 +260,7 @@ export default function DashboardPage() {
                   Ver financeiro
                 </Link>
               </section>
+              )}
 
               {/* -------------------------------------------------- estoque */}
               <section className="card p-5">

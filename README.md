@@ -43,6 +43,9 @@ APP_URL=http://localhost:3000
 CRON_SECRET=<segredo para o worker>
 ```
 
+Em produção, some a estas o `UPSTASH_REDIS_REST_URL` e o `UPSTASH_REDIS_REST_TOKEN` — sem
+eles o rate limit conta por instância (detalhe na seção 12).
+
 As demais (`WHATSAPP_*`, `PAYMENT_PROVIDER`, `AI_*`) são opcionais — o sistema roda sem
 elas e degrada com elegância: mensagens ficam na fila com status `skipped` e o pagamento
 usa o provider `manual` (checkout simulado em `/pagamento/simulado/<id>`).
@@ -211,6 +214,32 @@ produto*. Ao lançar:
 Sem estoque, o sistema **recusa e diz quanto sobrou** — não vende o que não existe.
 Removeu a venda? Volta para o estoque e sai do total.
 
+**Vitrine na página pública.** A aba *Produtos*, ao lado das categorias de serviço, mostra o
+que o estúdio revende — nome, marca e preço. É **mostruário, não loja**: não há botão de
+adicionar, e foi decidido assim de propósito. Produto não tem duração e tem estoque, então
+deixá-lo entrar no agendamento significaria segurar a prateleira por conta de uma reserva
+que ainda pode expirar em 15 minutos — e um agendamento falso em série zeraria o estoque.
+O cliente descobre que existe; a venda acontece no balcão, onde o estoque baixa de verdade.
+
+A rota `/api/v1/public/{slug}/products` devolve uma lista curta de propósito: `cost_price`
+é quanto o estúdio paga ao fornecedor e `stock_quantity` é o giro do negócio. Nenhum dos
+dois sai. Tem teste garantindo que nenhum campo com `cost`, `stock` ou `track` no nome
+escapa por ali.
+
+**Venda avulsa** (painel → Produtos → *Venda avulsa*): o cliente que entra só para levar
+um xampu e vai embora. Escolhe os produtos, a forma de pagamento e pronto — o cliente é
+opcional, porque quem passa só para comprar costuma não estar cadastrado.
+
+Ela **não vira agendamento**, e isso é a decisão que importa: um agendamento falso sujaria
+a agenda, a contagem de faltas e o ticket médio por atendimento. A venda mora em
+`product_sales` / `product_sale_items` e só encosta no resto em dois pontos — baixa o
+estoque (com movimento, como qualquer saída) e grava uma linha paga em `payments`, que é
+por onde o Financeiro lê todas as entradas. Por isso ela já aparece em *Entradas*, na
+quebra por forma de pagamento e em *produtos vendidos*, sem nenhuma query nova.
+
+*Cancelar* uma venda devolve o estoque e tira o valor do caixa, mas **mantém a linha
+marcada como cancelada**: apagar esconderia o erro de digitação em vez de mostrá-lo.
+
 **Estoque** tem três operações, com nomes de gente: *Entrada* (chegou mercadoria),
 *Contagem* (corrige para o número real que você contou) e *Perda* (quebrou, venceu, sumiu).
 Toda mexida vira linha em `product_movements` — venda, entrada, ajuste e devolução — porque
@@ -231,6 +260,8 @@ produto vendido.
 **Duas datas diferentes, de propósito:** *Entradas* segue a data do pagamento (caixa);
 *produtos vendidos* e *serviços realizados* seguem a data do atendimento (agenda). Um
 produto vendido hoje num horário da semana que vem aparece no caixa hoje e na agenda lá.
+A venda avulsa não tem essa ambiguidade: não há atendimento, então ela conta pela data da
+venda nos dois lugares.
 
 ---
 
@@ -355,6 +386,7 @@ GET    /api/v1/auth/me
 GET    /api/v1/public/{slug}                       dados da página
 GET    /api/v1/public/{slug}/services
 GET    /api/v1/public/{slug}/professionals
+GET    /api/v1/public/{slug}/products                vitrine (sem custo nem estoque)
 GET    /api/v1/public/{slug}/availability?date=|month=&services=
 POST   /api/v1/public/{slug}/appointments          cria a reserva
 GET|PATCH|DELETE /api/v1/public/booking/{token}    cliente vê/remarca/cancela
@@ -373,6 +405,8 @@ GET|POST         /api/v1/professionals  PATCH|DELETE /api/v1/professionals/{id}
 GET|POST         /api/v1/products       GET|PATCH|DELETE /api/v1/products/{id}
 POST             /api/v1/products/{id}/stock        entrada, contagem, perda
 GET|POST|DELETE  /api/v1/appointments/{id}/products vende/desfaz produto no atendimento
+GET|POST         /api/v1/sales                       venda avulsa (balcão, sem agendamento)
+GET|DELETE       /api/v1/sales/{id}                  detalhe | cancela e devolve ao estoque
 GET|POST         /api/v1/expenses       DELETE /api/v1/expenses/{id}
 GET|POST         /api/v1/blocks         DELETE /api/v1/blocks/{id}
 GET              /api/v1/dashboard      GET /api/v1/financial/summary
@@ -393,3 +427,102 @@ Toda a lógica está na API — um app mobile futuro consome exatamente estes en
 Hoje: `agendaempresa.com.br/agendar/<slug>`. A tabela `tenants` já tem `custom_domain`
 (único), então apontar `agenda.barbeariadojoao.com.br` para o tenant é resolver o host no
 lugar do slug — sem mexer na estrutura.
+
+---
+
+## 12. Segurança
+
+O que está feito, para não ter que redescobrir depois.
+
+**Quem é quem.** Senha em bcrypt; access token JWT de 30 min em cookie `httpOnly`;
+refresh token de valor aleatório, guardado como hash no banco e **rotacionado a cada uso**
+(token usado é token queimado). Cookies `sameSite=lax` — o que já resolve CSRF nas rotas
+que mudam estado. E-mail inexistente e senha errada devolvem a mesma mensagem **e demoram
+o mesmo tempo** (um bcrypt descartável roda mesmo sem usuário), então a tela de login não
+serve para descobrir quem tem conta.
+
+**Uma empresa nunca vê a outra.** Toda tabela de negócio carrega `tenant_id` e toda query
+filtra por ele; recurso carregado por id passa por `assertSameTenant` antes de voltar ou
+mudar. Tem suíte de testes só para isso (`tests/e2e/seguranca.test.ts`).
+
+**Papéis.** `OWNER > ADMIN > STAFF`. STAFF trabalha a agenda e vende no balcão; dinheiro
+(Financeiro, despesas, cancelar venda) e configuração (serviços, produtos, ajustes) são de
+ADMIN para cima. O dashboard **esconde faturamento, despesas, resultado e ticket médio de
+quem é STAFF** — antes o Financeiro era bloqueado mas a página inicial entregava tudo.
+
+**Segredos.** `.env` nunca foi versionado (só o `.env.example`). `npm run build` roda
+`scripts/check-env.mjs` antes de compilar e **derruba o deploy** se o `JWT_SECRET` ainda
+for o de exemplo, se ele for igual ao `CRON_SECRET`, se o banco estiver sem SSL, se a
+`APP_URL` não for https ou se alguma integração estiver ligada pela metade. Como rede de
+segurança, `src/lib/env.ts` também recusa segredo fraco em tempo de execução.
+
+**Cabeçalhos.** CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`,
+`Permissions-Policy` e HSTS (só em produção) saem em toda resposta, configurados em
+`next.config.mjs`. `X-Powered-By` foi removido.
+
+**URL de imagem é buscada pelo servidor.** Logo, foto do profissional e foto do produto
+ainda são URL colada à mão (o upload é pendência), e o otimizador do `next/image` vai
+buscar esse endereço a partir da nossa infraestrutura. `imageUrlSchema` (`src/lib/security.ts`)
+exige https e barra loopback, faixas privadas, `.local`/`.internal` e o endereço de
+metadados da nuvem — que é justamente por onde um SSRF vira credencial vazada.
+
+**O link do cliente.** O `manage_token` permite ver, remarcar e cancelar sem senha, então
+`/api/v1/payments/{id}` — que é público, porque quem está pagando ainda não tem login —
+**só entrega o token depois que o pagamento é confirmado**. O id é validado como uuid
+antes de encostar no banco e a rota tem limite por IP.
+
+**O worker.** `/api/v1/jobs/run` só aceita o segredo em `Authorization: Bearer`. A forma
+antiga (`?secret=`) foi removida: query string entra em log de acesso, em Referer e no
+histórico do navegador.
+
+**Webhook de pagamento.** Assinatura conferida sobre o corpo cru, antes de qualquer parse;
+evento repetido cai no `UNIQUE` de `payment_webhook_events` e não processa duas vezes.
+
+**Erro nunca conta demais.** `handleError` registra o detalhe no log do servidor e devolve
+mensagem genérica; nenhum `audit_log` guarda senha.
+
+**Rate limit.** `rateLimit(chave, teto, janela)` conta as batidas por chave — `login:<ip>`,
+`ai:<sessao>:<telefone>` — e devolve 429 ao estourar. Duas implementações atrás da mesma
+função ([rate-limit.ts](src/lib/rate-limit.ts)): com `UPSTASH_REDIS_REST_URL` +
+`UPSTASH_REDIS_REST_TOKEN` configurados, **todas as instâncias contam no mesmo lugar**;
+sem eles, cai para um `Map` do processo. O incremento e o prazo de validade rodam num
+script Lua, num passo só — em dois comandos existiria a janela em que a chave é criada e o
+processo morre antes de marcar a validade, e aquele IP nunca mais conseguiria fazer login.
+Redis fora do ar não derruba o agendamento: cai para a memória, avisa uma vez no log e
+segue. O timeout é de 1s, para um Redis lento não virar uma página lenta.
+
+O par no login merece atenção: **10 tentativas** em 5 min no geral, mas só **5 erradas**.
+Quem sabe a senha nunca esbarra; quem está chutando esbarra rápido.
+
+### O que ainda não está coberto
+- **Next.js 14.2.35 tem avisos de segurança em aberto** que só somem no Next 16 (migração
+  com quebra). Nenhum dos avisos aplicáveis atinge este app — não usamos Server Actions,
+  i18n, rewrites nem nonce de CSP — e os que atingiam o otimizador de imagem foram fechados
+  por configuração. Ainda assim, planejar a subida para o Next 16.
+- **Sem 2FA e sem "esqueci minha senha"** (pendência 13).
+
+---
+
+## 13. Subir para produção
+
+```bash
+npm run check:env      # confere os segredos como se fosse produção
+npm run test:all       # 28 unitários + 131 e2e (precisa do banco e do dev server)
+npm run build          # o check:env roda de novo aqui, e barra o que estiver errado
+npm run db:migrate     # no banco de produção
+```
+
+**Antes do primeiro deploy:**
+
+1. Banco gerenciado criado, `DATABASE_URL` com `sslmode=require`.
+2. `openssl rand -base64 48` para o `JWT_SECRET` e outro, **diferente**, para o
+   `CRON_SECRET`. Cadastrar como variáveis do projeto — nunca em arquivo versionado.
+3. `APP_URL` e `NEXT_PUBLIC_APP_URL` com o domínio https definitivo.
+4. **Não** cadastrar `RATE_LIMIT_DISABLED`.
+   Provisionar o Upstash Redis (`vercel integration add upstash`) — ele preenche as
+   variáveis sozinho e o rate limit passa a valer o número que está escrito. O
+   `check:env` avisa se faltar.
+5. `npm run db:migrate` apontando para o banco de produção; conferir no log se o
+   `btree_gist` subiu (é a trava de banco contra dois agendamentos no mesmo horário).
+6. O cron de `vercel.json` roda a cada 5 min e o Vercel manda o `CRON_SECRET` sozinho.
+7. Trocar a senha do usuário do seed, ou não rodar o seed em produção.

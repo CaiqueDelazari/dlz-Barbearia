@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { clientIp, ok, parseBody, route } from '@/lib/http';
+import { imageUrlSchema } from '@/lib/security';
 import { audit, requireRole } from '@/lib/auth';
 import { query, queryOne } from '@/lib/db';
 
@@ -22,7 +23,7 @@ const schema = z.object({
   description: z.string().max(500).nullable().optional(),
   price: z.number().min(0),
   durationMinutes: z.number().int().positive().max(600),
-  imageUrl: z.string().url().nullable().optional(),
+  imageUrl: imageUrlSchema.nullable().optional(),
   category: z.string().max(60).nullable().optional(),
   displayOrder: z.number().int().optional(),
   active: z.boolean().optional(),

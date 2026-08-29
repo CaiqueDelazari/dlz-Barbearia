@@ -10,19 +10,24 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api-client';
 
+/**
+ * `adminOnly` não é a proteção — a API recusa sozinha, e é ela que vale. Isto é
+ * para o menu parar de oferecer a quem trabalha no balcão portas que só devolvem
+ * "sem permissão".
+ */
 const NAV = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/agenda', label: 'Agenda', icon: CalendarDays },
   { href: '/admin/agendamentos', label: 'Agendamentos', icon: ClipboardList },
   { href: '/admin/clientes', label: 'Clientes', icon: Users },
-  { href: '/admin/servicos', label: 'Serviços', icon: Scissors },
+  { href: '/admin/servicos', label: 'Serviços', icon: Scissors, adminOnly: true },
   { href: '/admin/produtos', label: 'Produtos', icon: Package },
-  { href: '/admin/profissionais', label: 'Profissionais', icon: UserSquare2 },
-  { href: '/admin/financeiro', label: 'Financeiro', icon: Wallet },
-  { href: '/admin/relatorios', label: 'Relatórios', icon: BarChart3 },
+  { href: '/admin/profissionais', label: 'Profissionais', icon: UserSquare2, adminOnly: true },
+  { href: '/admin/financeiro', label: 'Financeiro', icon: Wallet, adminOnly: true },
+  { href: '/admin/relatorios', label: 'Relatórios', icon: BarChart3, adminOnly: true },
   { href: '/admin/notificacoes', label: 'Notificações', icon: MessageCircle },
-  { href: '/admin/whatsapp', label: 'WhatsApp', icon: MessageCircle },
-  { href: '/admin/configuracoes', label: 'Configurações', icon: Settings },
+  { href: '/admin/whatsapp', label: 'WhatsApp', icon: MessageCircle, adminOnly: true },
+  { href: '/admin/configuracoes', label: 'Configurações', icon: Settings, adminOnly: true },
 ];
 
 type Me = {
@@ -46,6 +51,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     setOpen(false); // fecha o menu ao navegar no celular
   }, [pathname]);
+
+  const nav = NAV.filter((item) => !item.adminOnly || me?.user.role !== 'STAFF');
 
   async function logout() {
     await api.post('/auth/logout').catch(() => {});
@@ -82,7 +89,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
 
         <nav className="space-y-0.5 p-3">
-          {NAV.map(({ href, label, icon: Icon }) => {
+          {nav.map(({ href, label, icon: Icon }) => {
             const active = href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
             return (
               <Link

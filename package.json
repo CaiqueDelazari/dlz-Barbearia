@@ -5,7 +5,7 @@
   "description": "SaaS multi-tenant de agendamento para barbearias e saloes",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/check-env.mjs && next build",
     "start": "next start",
     "lint": "next lint",
     "db:migrate": "node scripts/migrate.mjs",
@@ -14,7 +14,8 @@
     "jobs:run": "node scripts/run-jobs.mjs",
     "test": "tsx --env-file-if-exists=.env --test tests/*.test.ts",
     "test:e2e": "tsx --env-file-if-exists=.env --test tests/e2e/*.test.ts",
-    "test:all": "npm run test && npm run test:e2e"
+    "test:all": "npm run test && npm run test:e2e",
+    "check:env": "node scripts/check-env.mjs --strict"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.70.0",

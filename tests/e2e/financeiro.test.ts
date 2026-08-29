@@ -14,7 +14,9 @@ let empresa: Empresa;
 let corte: { id: string; price: number; durationMinutes: number };
 
 let proximo = 70;
-const diaExclusivo = () => diaUtil((proximo += 2));
+// passo 4: `diaUtil` empurra fim de semana para a segunda, e com passo 2 dois
+// offsets vizinhos caem no mesmo dia sempre que o primeiro cai no sábado
+const diaExclusivo = () => diaUtil((proximo += 4));
 
 async function atendimento(nome: string, telefone = '11944445555') {
   const dia = diaExclusivo();
