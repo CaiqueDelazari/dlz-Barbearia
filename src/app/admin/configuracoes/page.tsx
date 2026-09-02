@@ -79,6 +79,8 @@ export default function ConfiguracoesPage() {
           returnReminderDays: Number(settings.return_reminder_days),
           paymentMethods: settings.payment_methods,
           whatsappSessionId: settings.whatsapp_session_id || null,
+          ownerNotifyPhone: settings.owner_notify_phone || null,
+          ownerNotifyEnabled: Boolean(settings.owner_notify_enabled),
         },
         hours: hours.map((h) => ({ weekday: h.weekday, opensAt: h.opensAt, closesAt: h.closesAt })),
         breaks: breaks.map((b) => ({
@@ -277,6 +279,20 @@ export default function ConfiguracoesPage() {
             onChange={(v) => setS('whatsapp_session_id', v)}
           />
         </div>
+
+        <Toggle
+          label="Avisar a barbearia por WhatsApp"
+          checked={Boolean(settings.owner_notify_enabled)}
+          onChange={(v) => setS('owner_notify_enabled', v)}
+        />
+        <Field
+          label="Número que recebe os avisos da loja"
+          value={settings.owner_notify_phone ?? ''}
+          onChange={(v) => setS('owner_notify_phone', v)}
+        />
+        <p className="text-xs text-ink-400">
+          A loja é avisada de agendamento novo, cancelamento e remarcação. Em branco, não envia.
+        </p>
       </Section>
 
       {/* ---------------------------------------------- funcionamento */}

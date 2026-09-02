@@ -17,7 +17,12 @@ export type TemplateKey =
   | 'reminder_1h'
   | 'return'
   | 'cancelled'
-  | 'payment_link';
+  | 'payment_link'
+  // Avisos para a propria loja. Vao para `owner_notify_phone`, nao para o
+  // cliente, e por isso nao levam link de gerenciamento nenhum.
+  | 'owner_new'
+  | 'owner_cancelled'
+  | 'owner_rescheduled';
 
 export const DEFAULT_TEMPLATES: Record<TemplateKey, string> = {
   confirmation:
@@ -38,6 +43,15 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, string> = {
     'Olá, {cliente}! Para confirmar seu horário na {empresa} em {data} às {hora}, ' +
     'finalize o pagamento de {valor_pagar} aqui: {link_pagamento}\n\n' +
     'A reserva fica guardada por {minutos} minutos.',
+  owner_new:
+    '📅 Novo agendamento\n\n{nome_completo} — {telefone_cliente}\n' +
+    '🗓️ {data} às {hora}\n💈 {servicos}\n👤 {profissional}\n💰 {valor_total}',
+  owner_cancelled:
+    '❌ Cancelamento\n\n{nome_completo} desmarcou {data} às {hora}\n' +
+    '💈 {servicos}\n👤 {profissional}',
+  owner_rescheduled:
+    '🔄 Remarcação\n\n{nome_completo} mudou para {data} às {hora}\n' +
+    '💈 {servicos}\n👤 {profissional}',
 };
 
 export function render(body: string, vars: Record<string, string | number>): string {
@@ -203,6 +217,60 @@ export async function scheduleAppointmentNotifications(
       }
     }
   }
+}
+
+/**
+ * Aviso para a propria loja -- agendamento novo, cancelamento, remarcacao.
+ *
+ * Vai para `owner_notify_phone`, nunca para o cliente, entao nao leva link de
+ * gerenciamento: quem recebe ja tem o painel. Sem numero cadastrado nao ha para
+ * onde mandar e a funcao sai calada, do mesmo jeito que o envio ao cliente sai
+ * quando o template esta desligado.
+ *
+ * Falhar aqui nao pode derrubar o agendamento -- quem chama trata com .catch(),
+ * igual aos avisos do cliente.
+ */
+export async function notifyOwner(
+  tenantId: string,
+  appointmentId: string,
+  key: 'owner_new' | 'owner_cancelled' | 'owner_rescheduled'
+): Promise<void> {
+  const { tenant, settings } = await getTenantContext(tenantId);
+  if (!settings.owner_notify_enabled) return;
+  const phone = settings.owner_notify_phone?.trim();
+  if (!phone) return;
+
+  const appt = await loadAppointmentData(tenantId, appointmentId);
+  if (!appt) return;
+
+  const body = await templateFor(tenantId, key);
+  if (!body) return;
+
+  const zoned = utcToZoned(new Date(appt.starts_at), tenant.timezone);
+  const startsAt = new Date(appt.starts_at).getTime();
+
+  await enqueue({
+    tenantId,
+    appointmentId,
+    clientId: appt.client_id,
+    type: key,
+    phone,
+    body: render(body, {
+      cliente: appt.client_name.split(' ')[0],
+      nome_completo: appt.client_name,
+      telefone_cliente: appt.client_phone,
+      empresa: tenant.name,
+      data: formatDateBR(zoned.dateStr),
+      hora: zoned.timeStr,
+      servicos: appt.services,
+      profissional: appt.professional_name ?? tenant.name,
+      valor_total: money(appt.total_amount),
+    }),
+    scheduledFor: new Date(),
+    // A hora do atendimento entra na chave para que a remarcacao gere um aviso
+    // novo em vez de esbarrar no aviso da hora antiga.
+    dedupeKey: `${appointmentId}:${key}:${startsAt}`,
+  });
 }
 
 export async function cancelScheduledNotifications(

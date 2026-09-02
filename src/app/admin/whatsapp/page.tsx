@@ -3,13 +3,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { CheckCircle2, ExternalLink, Loader2, RefreshCw, Send, XCircle } from 'lucide-react';
+import { CheckCircle2, Loader2, QrCode, RefreshCw, Send, XCircle } from 'lucide-react';
 import { api, ApiClientError } from '@/lib/api-client';
 
 type StatusResponse = {
   sessionId: string;
   status: { configured?: boolean; connected?: boolean; conectada?: boolean; error?: string } & Record<string, unknown>;
-  connectUrl: string | null;
+  session: SessionSnapshot | null;
+};
+
+type SessionSnapshot = {
+  status: 'conectado' | 'aguardando_leitura' | 'desconectado';
+  qrcode: string;
+  numero: string;
 };
 
 export default function WhatsappPage() {
@@ -18,6 +24,7 @@ export default function WhatsappPage() {
   const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [pairing, setPairing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -33,6 +40,23 @@ export default function WhatsappPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Pede o QR ao bot pelo nosso servidor. O token do bot nunca chega aqui: a
+  // tela recebe so a imagem pronta.
+  async function pair() {
+    setPairing(true);
+    try {
+      const res = await api.post<{ session: SessionSnapshot | null }>('/whatsapp/connect', {});
+      if (!res.session || res.session.status === 'desconectado') {
+        toast.error('O bot nao devolveu o QR. Confira se o gateway esta no ar.');
+      }
+      setData((prev) => (prev ? { ...prev, session: res.session } : prev));
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : 'Falha ao iniciar o pareamento');
+    } finally {
+      setPairing(false);
+    }
+  }
 
   async function sendTest() {
     if (!phone || !message) return toast.error('Informe telefone e mensagem');
@@ -95,15 +119,31 @@ export default function WhatsappPage() {
               </p>
             )}
 
-            {!connected && data?.connectUrl && (
-              <a
-                href={data.connectUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="btn-primary mt-4 w-full sm:w-auto"
-              >
-                <ExternalLink size={15} /> Abrir QR Code para parear
-              </a>
+            {!connected && configured && (
+              <div className="mt-4 space-y-3">
+                <button className="btn-primary w-full sm:w-auto" onClick={pair} disabled={pairing}>
+                  {pairing ? <Loader2 size={15} className="animate-spin" /> : <QrCode size={15} />}
+                  {pairing ? 'Gerando QR Code...' : 'Gerar QR Code para parear'}
+                </button>
+
+                {data?.session?.status === 'aguardando_leitura' && data.session.qrcode && (
+                  <div className="rounded-xl bg-white p-3 text-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={data.session.qrcode}
+                      alt="QR Code para parear o WhatsApp"
+                      className="mx-auto h-[260px] w-[260px]"
+                    />
+                    <p className="mt-2 text-xs text-ink-900">
+                      WhatsApp → Aparelhos conectados → Conectar aparelho
+                    </p>
+                  </div>
+                )}
+
+                <button className="btn-ghost w-full sm:w-auto" onClick={load}>
+                  <RefreshCw size={15} /> Ja escaneei, conferir
+                </button>
+              </div>
             )}
           </section>
 
