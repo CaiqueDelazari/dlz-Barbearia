@@ -66,6 +66,8 @@ const schema = z.object({
       manageLinkTtlHours: z.number().int().min(1).max(8760).optional(),
       paymentMethods: z.array(z.enum(['pix', 'card', 'cash', 'transfer', 'other'])).optional(),
       whatsappSessionId: z.string().max(60).nullable().optional(),
+      ownerNotifyPhone: z.string().max(30).nullable().optional(),
+      ownerNotifyEnabled: z.boolean().optional(),
     })
     .optional(),
   /** Substitui a grade toda de horarios da empresa quando enviada. */
@@ -124,6 +126,12 @@ const SETTINGS_COLUMNS: Record<string, string> = {
   manageLinkTtlHours: 'manage_link_ttl_hours',
   paymentMethods: 'payment_methods',
   whatsappSessionId: 'whatsapp_session_id',
+  // `payment_provider` NAO entra aqui de proposito. E' configuracao de
+  // plataforma, nao de loja: um ADMIN que pudesse escrever o nome de um gateway
+  // aqui passaria a cobrar para a conta de quem contratou a cobranca online.
+  // Ver a migration 007.
+  ownerNotifyPhone: 'owner_notify_phone',
+  ownerNotifyEnabled: 'owner_notify_enabled',
 };
 
 function buildUpdate(

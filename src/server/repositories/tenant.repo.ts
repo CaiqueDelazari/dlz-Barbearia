@@ -14,7 +14,8 @@ const SETTINGS_COLUMNS = `
   forfeit_deposit_on_no_show, hold_expiration_minutes, allow_split_appointments,
   allow_professional_choice, reminder_24h_enabled, reminder_1h_enabled,
   return_reminder_enabled, return_reminder_days, manage_link_ttl_hours,
-  payment_methods, whatsapp_session_id
+  payment_methods, whatsapp_session_id, payment_provider,
+  owner_notify_phone, owner_notify_enabled
 `;
 
 export async function getTenantById(tenantId: string): Promise<Tenant> {

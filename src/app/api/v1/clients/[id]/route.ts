@@ -1,14 +1,29 @@
 import { z } from 'zod';
 import { ApiError, clientIp, ok, parseBody, route } from '@/lib/http';
 import { audit, requireAuth } from '@/lib/auth';
-import { queryOne } from '@/lib/db';
+import { query, queryOne } from '@/lib/db';
 import { getClientHistory, normalizePhone } from '@/server/repositories/client.repo';
+import { escopoDeAgenda } from '@/server/services/escopo.service';
 
 export const dynamic = 'force-dynamic';
 
 /** Ficha completa: historico, servicos mais usados, total gasto, proximo horario. */
 export const GET = route(async (req: Request, { params }: { params: { id: string } }) => {
   const session = await requireAuth(req);
+
+  // Filtrar a lista nao basta: com o id na mao, um STAFF abriria a ficha de
+  // qualquer cliente da casa -- historico, telefone e quanto ja gastou.
+  const escopo = await escopoDeAgenda(session);
+  if (escopo !== null) {
+    const atendeu = await query(
+      `SELECT 1 FROM appointments
+        WHERE tenant_id = $1 AND client_id = $2 AND professional_id = $3
+        LIMIT 1`,
+      [session.tenantId, params.id, escopo || '00000000-0000-0000-0000-000000000000']
+    );
+    if (atendeu.length === 0) throw ApiError.notFound('Cliente nao encontrado');
+  }
+
   return ok(await getClientHistory(session.tenantId, params.id));
 });
 

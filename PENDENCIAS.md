@@ -11,51 +11,47 @@ o comportamento precisa de confirmação · **risco** = funciona hoje e quebra a
 
 ## Alta
 
-### 1. Gateway de pagamento online nunca rodou — *não verificado*
-Todo o fluxo de dinheiro foi testado com o provider `manual` (checkout simulado). O
-`MercadoPagoProvider` está escrito — Pix com QR, cartão via Checkout Pro, validação de
-assinatura `x-signature`, consulta na API antes de acreditar no status — mas **nenhuma
-transação real passou por ele**.
+### 1. Gateway de pagamento: falta escrever o provider da Pagar.me — *falta*
+O cliente usa **Stone**, então o gateway é **Pagar.me** (mesma casa). O
+`MercadoPagoProvider` não serve e não vale adaptar — é escrever um `PagarmeProvider` ao
+lado, implementando a mesma interface de `payment/provider.ts` (47 linhas: checkout, Pix,
+webhook assinado, consulta antes de acreditar no status).
 
-Não há cliente definido ainda, então também não há gateway a escolher. Vale lembrar a
-distinção que já apareceu antes: **maquininha não é integração**. Pagamento no balcão se
-registra como `card` e já funciona hoje, inclusive na venda avulsa. O gateway online só
-entra em cena para cobrar o **sinal pela internet, antes de o cliente vir**.
+Até as chaves da Stone existirem, `PAYMENT_PROVIDER=manual` continua sendo a configuração
+correta. Lembrando a distinção de sempre: **maquininha não é integração**. Pagamento no
+balcão se registra como `card` e já funciona. O gateway online só entra para cobrar o
+**sinal pela internet**, antes de o cliente vir.
 
-Quando houver cliente, o provider sai da adquirente dele — quem usa Stone vai de Pagar.me,
-e aí o `MercadoPagoProvider` não serve. Até lá, `PAYMENT_PROVIDER=manual` é a configuração
-correta, e trocar de provider é o trabalho previsto, não um desvio.
+### 2. O bot nunca enviou uma mensagem de verdade — *não verificado*
+A fila funciona e está testada, e o contrato com o Bot-Whats foi conferido campo a campo
+(`POST /send {session, phone, message}`, `Bearer` do `BOT_TOKEN`, `/status/:id`) — bate.
+Falta parear a sessão da barbearia e ver uma mensagem sair. Com o gateway desligado elas
+terminam como `skipped`.
 
-### 2. WhatsApp e IA nunca enviaram nada — *não verificado*
-A fila de notificações funciona e está testada (as mensagens entram, saem da fila quando
-o agendamento é cancelado, são reprogramadas ao remarcar). Mas com o gateway desligado
-elas terminam como `skipped` — **nenhuma mensagem real foi enviada**.
+O **atendimento por IA saiu do produto** (31/08/2026): o cliente quer o bot avisando, não
+respondendo. Foram removidos `services/ai/`, a rota `/api/v1/ai/chat`, o
+`@anthropic-ai/sdk` e as variáveis `AI_*`; a migration `005` derruba as duas tabelas de
+conversa que sobraram.
 
-Falta: parear uma sessão no bot Baileys, enviar uma confirmação de verdade, e ligar a
-rota `/api/v1/ai/chat` no bot para o atendimento automático (o trecho está no README).
+Os avisos **para a barbearia** passaram a existir na mesma leva — antes todos os seis
+templates falavam só com o cliente.
 
-### 3. Migrations nunca rodaram em Postgres gerenciado — *não verificado*
-As quatro migrations (`001_init`, `002_products`, `003_sales`, `004_refunds`) rodam limpas
-em Postgres 16 local, inclusive num schema próprio ao lado de outro sistema — testado em
-29/08/2026. **Isso não prova nada sobre Supabase/Neon**, e os dois pontos abaixo são
-exatamente os que diferem lá:
+### 3. ~~Migrations nunca rodaram em Postgres gerenciado~~ — **resolvido em 31/08/2026**
+Rodaram no Supabase (`dlz-restaurantes`, schema `barbearia`), e as duas dúvidas do item
+original foram respondidas na prática:
 
-- `CREATE EXTENSION btree_gist` — usado pela trava `excl_appt_overlap` contra double
-  booking. A migration degrada com aviso se não puder criar, **mas aí some a última
-  camada de proteção**. Depois de migrar, conferir que a trava existe:
+- **`btree_gist` subiu.** A trava `excl_appt_overlap` existe e está ativa — conferido com
+  `SELECT conname FROM pg_constraint WHERE conname = 'excl_appt_overlap'`. O double booking
+  tem as duas camadas, não só o lock da aplicação.
+- **Extensões no schema `extensions`.** Criadas lá de propósito (`pgcrypto`, `btree_gist`),
+  e o `search_path` do app já inclui `public` e `extensions` no fim do caminho.
 
-  ```sql
-  SELECT conname FROM pg_constraint WHERE conname = 'excl_appt_overlap';
-  ```
+Resultado: 25 tabelas, 7 enums, 6 migrations registradas em `schema_migrations`. Os quatro
+restaurantes que dividem o banco ficaram intactos e o `public` continua vazio.
 
-  Sem linha de volta, dois clientes podem cair no mesmo horário do mesmo profissional.
-- `pg_advisory_xact_lock` sob PgBouncer em modo *transaction* — funciona, mas o pool
-  precisa estar em modo transação, não statement.
-- No Supabase as extensões moram no schema `extensions`, fora do `public`. O `search_path`
-  do app e dos scripts já inclui os dois, mas se `gen_random_uuid()` der "function does not
-  exist", é aí que se olha.
-
----
+Falta ainda o **PgBouncer em modo transaction**: o `pg_advisory_xact_lock` depende disso, e
+só dá para confirmar quando a aplicação subir apontando para o pooler (porta 6543). A
+migration foi pela conexão direta, que é o certo para DDL mas não exercita esse caminho.
 
 ## Média
 
@@ -183,6 +179,19 @@ aí sim precisa paginar e mover a busca para o servidor.
   PEXPIRE num script Lua, num passo só. Redis fora do ar não derruba o agendamento.
   Testado contra Redis de verdade em `tests/redis-compartilhado.test.ts`, que pula sozinho
   quando não há container (instruções no cabeçalho do arquivo).
+- **Sessão do WhatsApp presa a um namespace (2026-08-31).** O bot Baileys é uma instância
+  só atendendo todos os negócios da casa, e o id da sessão é a única coisa que separa um
+  número do outro lá dentro. O `whatsapp_session_id`, editável por qualquer ADMIN nas
+  Configurações e validado só como texto de até 60 caracteres, ia **cru** para o
+  `POST /send`. Um ADMIN que escrevesse `espeto-na-brasa` passaria a mandar mensagem para
+  qualquer número **saindo do WhatsApp da Espetaria**, a ler se aquela sessão estava
+  conectada e — se estivesse fora do ar — a pedir o QR e parear o próprio celular no lugar
+  dela. Agora todo id nasce com o prefixo `barb-` e passa por sanitização
+  (`safeSessionId`), então nenhum valor digitado alcança sessão de fora deste sistema; como
+  o slug do tenant é UNIQUE, duas empresas daqui também não colidem. 6 testes de regressão.
+  O QR devolvido pelo gateway só é aceito como `data:image/`, senão o painel do dono
+  buscaria um endereço externo sem ninguém pedir.
+
 - **Passada de segurança antes do deploy (2026-08-28).** O que estava aberto e foi
   fechado: `/api/v1/payments/{id}` era público e entregava o `manage_token` do
   agendamento **antes do pagamento** — quem visse o id na URL controlava a reserva alheia

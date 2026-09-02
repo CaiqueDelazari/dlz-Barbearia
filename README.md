@@ -64,7 +64,7 @@ CRON_SECRET=<segredo para o worker>
 Em produção, some a estas o `UPSTASH_REDIS_REST_URL` e o `UPSTASH_REDIS_REST_TOKEN` — sem
 eles o rate limit conta por instância (detalhe na seção 12).
 
-As demais (`WHATSAPP_*`, `PAYMENT_PROVIDER`, `AI_*`) são opcionais — o sistema roda sem
+As demais (`WHATSAPP_*`, `PAYMENT_PROVIDER`) são opcionais — o sistema roda sem
 elas e degrada com elegância: mensagens ficam na fila com status `skipped` e o pagamento
 usa o provider `manual` (checkout simulado em `/pagamento/simulado/<id>`).
 
@@ -324,29 +324,28 @@ WHATSAPP_TOKEN=<o mesmo BOT_TOKEN do bot>
 ```
 
 Cada empresa usa uma sessão do bot; por padrão o identificador é o slug da empresa
-(configurável em Configurações → Sessão do WhatsApp). O pareamento por QR Code é feito
-pelo próprio bot — o painel (`/admin/whatsapp`) mostra o status e o link.
+(configurável em Configurações → Sessão do WhatsApp). O valor **sempre** recebe o prefixo
+`barb-` e é sanitizado: o bot é compartilhado com os outros sistemas da casa, e sem isso um
+ADMIN que escrevesse a sessão de outra loja passaria a mandar mensagem saindo do WhatsApp
+dela. Regressão coberta em `tests/whatsapp-sessao.test.ts`. O pareamento acontece **dentro do
+painel** (`/admin/whatsapp`): o botão pede o QR ao bot pelas rotas `/api/sessoes`, e a
+imagem é desenhada na própria tela.
 
-### Atendimento por IA (opcional)
+Não use a página `/connect/<sessão>` do bot como link: fora do `/health`, toda rota dele
+exige o `BOT_TOKEN`, e o navegador não manda header — o link abre em 401. O bot aceita
+`?token=` para contornar, mas isso penduraria na URL o token que envia mensagem por todas
+as lojas, onde ele vaza em histórico, log e Referer. Por isso a chamada sai do servidor.
 
-Para o bot responder clientes, basta ele encaminhar as mensagens recebidas:
+### Quem recebe o quê
 
-```js
-// no Bot-Whats, ao receber mensagem de texto
-const res = await fetch(`${SITE_URL}/api/v1/ai/chat`, {
-  method: "POST",
-  headers: { "content-type": "application/json", authorization: `Bearer ${BOT_TOKEN}` },
-  body: JSON.stringify({ session: sessionId, phone, message: texto }),
-});
-const { data } = await res.json();
-await sock.sendMessage(jid, { text: data.reply });
-```
+O cliente recebe confirmação, lembretes (24h e 1h), convite de retorno, aviso de
+cancelamento e link de pagamento.
 
-A IA **não escreve no banco**. Ela usa ferramentas (`get_services`,
-`get_available_slots`, `create_appointment`, `reschedule_appointment`,
-`cancel_appointment`, …) que chamam a mesma camada de serviço da API — então respeitam
-disponibilidade real, trava de concorrência e política de cancelamento. Se ela inventar
-um horário, o backend recusa.
+A **barbearia** recebe agendamento novo, cancelamento e remarcação, no número de
+Configurações → *Número que recebe os avisos da loja* (em branco, não envia). São os três
+eventos que mudam o dia de quem está no balcão — lembrete para a loja seria ruído, já que
+a agenda está aberta na tela. Um agendamento com dois serviços no mesmo horário gera **um**
+aviso, não dois: o texto já lista os serviços.
 
 ---
 
@@ -432,7 +431,7 @@ GET|PATCH        /api/v1/settings
 GET|PATCH        /api/v1/notifications/templates
 GET|POST         /api/v1/notifications/send
 GET              /api/v1/whatsapp/status
-POST             /api/v1/ai/chat                   entrada do bot
+POST             /api/v1/whatsapp/connect        gera o QR de pareamento
 GET|POST         /api/v1/jobs/run                  worker (cron)
 ```
 

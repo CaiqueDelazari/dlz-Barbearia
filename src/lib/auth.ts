@@ -89,9 +89,36 @@ export async function getSession(req: Request): Promise<Session | null> {
   }
 }
 
+/**
+ * O acesso ainda vale AGORA? Pergunta ao banco, nao ao token.
+ *
+ * O JWT e' assinado e valido por `JWT_ACCESS_TTL_MIN` (30 minutos por padrao).
+ * So verificar a assinatura significa que desativar alguem so tem efeito quando
+ * o token dele expira -- ate meia hora de acesso completo depois de voce ter
+ * cortado. Para um barbeiro que parou de pagar, meia hora e' tempo de sobra
+ * para exportar contato de cliente.
+ *
+ * O refresh ja recusa quem esta inativo, entao a janela era limitada; esta
+ * checagem a fecha de vez: `users.active = false` corta no proximo clique.
+ *
+ * Custa uma consulta por requisicao autenticada, por chave primaria. E' o preco
+ * de poder desligar alguem na hora, e e' pequeno perto do que cada rota ja faz.
+ */
+async function assertAcessoAindaValido(session: Session): Promise<void> {
+  const row = await queryOne<{ ok: boolean }>(
+    `SELECT true AS ok
+       FROM users u
+       JOIN tenants t ON t.id = u.tenant_id
+      WHERE u.id = $1 AND u.tenant_id = $2 AND u.active AND t.active`,
+    [session.userId, session.tenantId]
+  );
+  if (!row) throw ApiError.unauthorized();
+}
+
 export async function requireAuth(req: Request): Promise<Session> {
   const session = await getSession(req);
   if (!session) throw ApiError.unauthorized();
+  await assertAcessoAindaValido(session);
   return session;
 }
 

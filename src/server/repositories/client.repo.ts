@@ -63,9 +63,24 @@ export async function listClients(params: {
   search?: string;
   limit?: number;
   offset?: number;
+  /**
+   * Quando presente, so os clientes que ja marcaram com ESTE profissional.
+   *
+   * A carteira e' do salao, nao do barbeiro: ele atende quem aparece na agenda
+   * dele e nao tem por que levar embora a lista inteira de contatos da casa --
+   * que e' o ativo mais facil de copiar que existe num negocio desses.
+   */
+  somenteDoProfissional?: string;
 }) {
   const values: unknown[] = [params.tenantId];
   let searchSql = '';
+  let escopoSql = '';
+  if (params.somenteDoProfissional !== undefined) {
+    values.push(params.somenteDoProfissional);
+    escopoSql = ` AND EXISTS (SELECT 1 FROM appointments a2
+                               WHERE a2.client_id = c.id AND a2.tenant_id = c.tenant_id
+                                 AND a2.professional_id = $${values.length})`;
+  }
   if (params.search) {
     values.push(`%${params.search.replace(/\D/g, '') || params.search}%`);
     values.push(`%${params.search}%`);
@@ -85,14 +100,14 @@ export async function listClients(params: {
                 min(a.starts_at) FILTER (WHERE a.status = 'confirmed' AND a.starts_at > now()) AS next_visit
            FROM appointments a WHERE a.client_id = c.id
        ) stats ON true
-      WHERE c.tenant_id = $1${searchSql}
+      WHERE c.tenant_id = $1${escopoSql}${searchSql}
       ORDER BY c.name
       LIMIT ${limit} OFFSET ${offset}`,
     values
   );
 
   const total = await queryOne<{ count: string }>(
-    `SELECT count(*)::text AS count FROM clients c WHERE c.tenant_id = $1${searchSql}`,
+    `SELECT count(*)::text AS count FROM clients c WHERE c.tenant_id = $1${escopoSql}${searchSql}`,
     values
   );
   return { items, total: Number(total?.count ?? 0) };

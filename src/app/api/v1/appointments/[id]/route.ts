@@ -1,13 +1,23 @@
 import { z } from 'zod';
-import { clientIp, ok, parseBody, route } from '@/lib/http';
+import { ApiError, clientIp, ok, parseBody, route } from '@/lib/http';
 import { requireAuth } from '@/lib/auth';
 import { getAppointment, rescheduleAppointment, setStatus } from '@/server/services/appointment.service';
+import { escopoDeAgenda } from '@/server/services/escopo.service';
 
 export const dynamic = 'force-dynamic';
 
 export const GET = route(async (req: Request, { params }: { params: { id: string } }) => {
   const session = await requireAuth(req);
   const appointment = await getAppointment(session.tenantId, params.id);
+
+  // Filtrar a listagem nao basta: sem esta checagem, um STAFF que soubesse o id
+  // abriria o atendimento de qualquer colega -- com nome, telefone e valores.
+  // 404 em vez de 403 para nao confirmar que o id existe.
+  const escopo = await escopoDeAgenda(session);
+  if (escopo !== null && appointment?.professional_id !== escopo) {
+    throw ApiError.notFound();
+  }
+
   return ok({ appointment });
 });
 

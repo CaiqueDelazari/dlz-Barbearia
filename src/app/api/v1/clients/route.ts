@@ -3,6 +3,7 @@ import { clientIp, ok, parseBody, parseQuery, route } from '@/lib/http';
 import { audit, requireAuth } from '@/lib/auth';
 import { queryOne } from '@/lib/db';
 import { listClients, normalizePhone } from '@/server/repositories/client.repo';
+import { escopoDeAgenda, filtroDeProfissional } from '@/server/services/escopo.service';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,15 @@ const listSchema = z.object({
 export const GET = route(async (req: Request) => {
   const session = await requireAuth(req);
   const q = parseQuery(req, listSchema);
-  const result = await listClients({ tenantId: session.tenantId, ...q });
+  // O barbeiro ve so quem ja marcou com ele; a carteira e' do salao.
+  const escopo = await escopoDeAgenda(session);
+  const result = await listClients({
+    tenantId: session.tenantId,
+    ...q,
+    // filtroDeProfissional troca o escopo vazio por um uuid que nao existe;
+    // passar '' cru estouraria o cast para uuid no Postgres.
+    somenteDoProfissional: filtroDeProfissional(escopo, undefined),
+  });
   return ok(result);
 });
 

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { clientIp, ok, parseBody, parseQuery, route } from '@/lib/http';
 import { requireAuth } from '@/lib/auth';
 import { createBooking, listAppointments } from '@/server/services/appointment.service';
+import { escopoDeAgenda, filtroDeProfissional } from '@/server/services/escopo.service';
 import { registerManualPayment } from '@/server/services/payment/payment.service';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,14 @@ const listSchema = z.object({
 export const GET = route(async (req: Request) => {
   const session = await requireAuth(req);
   const q = parseQuery(req, listSchema);
-  const result = await listAppointments({ tenantId: session.tenantId, ...q });
+  // STAFF so enxerga a propria agenda. O filtro do escopo entra DEPOIS do spread
+  // de `q`, senao o `professionalId` da query sobrescreveria a restricao.
+  const escopo = await escopoDeAgenda(session);
+  const result = await listAppointments({
+    tenantId: session.tenantId,
+    ...q,
+    professionalId: filtroDeProfissional(escopo, q.professionalId),
+  });
   return ok(result);
 });
 

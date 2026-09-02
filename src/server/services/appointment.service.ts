@@ -12,7 +12,11 @@ import {
   loadServices,
   professionalsForServices,
 } from './availability.service';
-import { scheduleAppointmentNotifications, cancelScheduledNotifications } from './notification.service';
+import {
+  scheduleAppointmentNotifications,
+  cancelScheduledNotifications,
+  notifyOwner,
+} from './notification.service';
 
 export type BookingItemInput = {
   startsAt: string;              // ISO
@@ -263,6 +267,15 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
         console.error('[notificacao] falha ao agendar:', err)
       );
     }
+    // A loja recebe um aviso so, do primeiro item: um corte + barba viram dois
+    // appointments no mesmo horario, e tres mensagens seguidas para o mesmo
+    // agendamento seriam ruido. O texto ja lista os servicos.
+    const primeiro = result.appointments[0];
+    if (primeiro) {
+      await notifyOwner(input.tenantId, primeiro.id, 'owner_new').catch((err) =>
+        console.error('[notificacao] falha ao avisar a loja:', err)
+      );
+    }
   }
 
   return {
@@ -405,6 +418,9 @@ export async function setStatus(input: {
   }
   if (input.status === 'cancelled' || input.status === 'no_show') {
     await cancelScheduledNotifications(input.tenantId, input.appointmentId);
+    await notifyOwner(input.tenantId, input.appointmentId, 'owner_cancelled').catch((err) =>
+      console.error('[notificacao] falha ao avisar a loja:', err)
+    );
   }
 
   await audit({
@@ -482,6 +498,9 @@ export async function rescheduleAppointment(input: {
   await cancelScheduledNotifications(input.tenantId, input.appointmentId);
   await scheduleAppointmentNotifications(input.tenantId, input.appointmentId, { includeConfirmation: true }).catch(
     (err) => console.error('[notificacao] falha ao reagendar avisos:', err)
+  );
+  await notifyOwner(input.tenantId, input.appointmentId, 'owner_rescheduled').catch((err) =>
+    console.error('[notificacao] falha ao avisar a loja:', err)
   );
 
   await audit({

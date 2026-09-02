@@ -5,6 +5,7 @@ import { query } from '@/lib/db';
 import { addDays, todayInTz, zonedToUtc } from '@/lib/datetime';
 import { getTenantContext } from '@/server/repositories/tenant.repo';
 import { listAppointments } from '@/server/services/appointment.service';
+import { escopoDeAgenda, filtroDeProfissional } from '@/server/services/escopo.service';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,11 @@ export const GET = route(async (req: Request) => {
   const q = parseQuery(req, schema);
   const { tenant } = await getTenantContext(session.tenantId);
   const tz = tenant.timezone;
+
+  // STAFF ve so a propria agenda -- inclusive os bloqueios e as pausas, senao a
+  // tela mostraria a folga dos colegas em cima dos horarios dele.
+  const escopo = await escopoDeAgenda(session);
+  const profId = filtroDeProfissional(escopo, q.professionalId);
 
   const date = q.date ?? todayInTz(tz);
   let from = date;
@@ -51,7 +57,7 @@ export const GET = route(async (req: Request) => {
       tenantId: session.tenantId,
       from: rangeStart.toISOString(),
       to: rangeEnd.toISOString(),
-      professionalId: q.professionalId,
+      professionalId: profId,
       limit: 500,
     }),
     query(
@@ -62,7 +68,7 @@ export const GET = route(async (req: Request) => {
         WHERE b.tenant_id = $1 AND b.ends_at > $2 AND b.starts_at < $3
           AND ($4::uuid IS NULL OR b.professional_id IS NULL OR b.professional_id = $4)
         ORDER BY b.starts_at`,
-      [session.tenantId, rangeStart, rangeEnd, q.professionalId ?? null]
+      [session.tenantId, rangeStart, rangeEnd, profId ?? null]
     ),
     query(
       `SELECT b.id, b.professional_id AS "professionalId", p.name AS "professionalName",
@@ -72,7 +78,7 @@ export const GET = route(async (req: Request) => {
         WHERE b.tenant_id = $1
           AND ($2::uuid IS NULL OR b.professional_id IS NULL OR b.professional_id = $2)
         ORDER BY b.weekday, b.starts_at`,
-      [session.tenantId, q.professionalId ?? null]
+      [session.tenantId, profId ?? null]
     ),
     query(
       `SELECT professional_id AS "professionalId", weekday,

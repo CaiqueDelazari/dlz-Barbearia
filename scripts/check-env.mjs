@@ -45,8 +45,6 @@ const {
   WHATSAPP_ENABLED = '',
   WHATSAPP_API_URL = '',
   WHATSAPP_TOKEN = '',
-  AI_ENABLED = '',
-  ANTHROPIC_API_KEY = '',
 } = process.env;
 
 // ---------------------------------------------------------------- banco
@@ -145,10 +143,6 @@ if (WHATSAPP_ENABLED === 'true') {
   );
 } else {
   avisar(false, 'WhatsApp desligado: nenhuma mensagem sai da fila (elas ficam como `skipped`).');
-}
-
-if (AI_ENABLED === 'true') {
-  exigir(!!ANTHROPIC_API_KEY, 'AI_ENABLED=true sem ANTHROPIC_API_KEY.');
 }
 
 // ---------------------------------------------------------------- saída

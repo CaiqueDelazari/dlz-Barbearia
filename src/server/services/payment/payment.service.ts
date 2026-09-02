@@ -9,13 +9,37 @@ import type { PaymentProvider } from './provider';
 import { ManualProvider } from './providers/manual.provider';
 import { MercadoPagoProvider } from './providers/mercadopago.provider';
 
-let providerInstance: PaymentProvider | null = null;
+/**
+ * Gateway de UMA loja.
+ *
+ * Nao existe mais provider global: um deploy atende varias barbearias e as
+ * credenciais do gateway sao de quem contratou a cobranca online. Escolher por
+ * `PAYMENT_PROVIDER` fazia toda loja com `online_payment_required` ligado cobrar
+ * para a conta dessa unica dona -- Pix saindo certo para o destino errado, sem
+ * erro nenhum no caminho.
+ *
+ * `payment_provider` vem de `business_settings` e nasce 'manual'. So quem tem a
+ * coluna preenchida ganha gateway de verdade, e a coluna nao e' editavel pelo
+ * painel (ver a migration 007).
+ *
+ * A checagem do ambiente continua valendo: se a loja pede um gateway que este
+ * deploy nao tem configurado, cai em manual em vez de tentar cobrar sem
+ * credencial e falhar na frente do cliente.
+ */
+export function getProviderForSettings(settings: { payment_provider: string }): PaymentProvider {
+  if (settings.payment_provider === 'mercadopago' && env.payment.provider === 'mercadopago') {
+    return new MercadoPagoProvider();
+  }
+  return new ManualProvider();
+}
 
-export function getProvider(): PaymentProvider {
-  if (providerInstance) return providerInstance;
-  providerInstance =
-    env.payment.provider === 'mercadopago' ? new MercadoPagoProvider() : new ManualProvider();
-  return providerInstance;
+/** Provider pelo nome, para o webhook -- que chega pelo gateway, nao pela loja. */
+export function getProviderByName(name: string): PaymentProvider | null {
+  if (name === 'mercadopago' && env.payment.provider === 'mercadopago') {
+    return new MercadoPagoProvider();
+  }
+  if (name === 'manual') return new ManualProvider();
+  return null;
 }
 
 export type CheckoutMode = 'deposit' | 'full';
@@ -105,7 +129,7 @@ export async function createCheckout(input: {
     }
   }
 
-  const provider = getProvider();
+  const provider = getProviderForSettings(settings);
 
   const created = await queryOne<{ id: string }>(
     `INSERT INTO payments (tenant_id, booking_group_id, appointment_id, client_id, amount, kind,
@@ -435,8 +459,8 @@ export async function handleWebhook(
   req: Request,
   rawBody: string
 ): Promise<{ processed: boolean; reason?: string }> {
-  const provider = getProvider();
-  if (provider.name !== providerName) {
+  const provider = getProviderByName(providerName);
+  if (!provider) {
     throw ApiError.badRequest('Provider desconhecido');
   }
 

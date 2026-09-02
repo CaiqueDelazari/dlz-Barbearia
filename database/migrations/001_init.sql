@@ -37,9 +37,12 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ---------------------------------------------------------------- helpers
+-- search_path fixo: sem ele a funcao resolveria `now()` pelo caminho de quem a
+-- chama, e quem pudesse criar objeto num schema anterior decidiria o que ela
+-- executa. Dispara em quase toda tabela, entao vale fechar.
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $fn$
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
-$fn$ LANGUAGE plpgsql;
+$fn$ LANGUAGE plpgsql SET search_path = pg_catalog;
 
 -- ---------------------------------------------------------------- tenants
 CREATE TABLE IF NOT EXISTS tenants (

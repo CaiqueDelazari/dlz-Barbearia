@@ -35,6 +35,9 @@ export type BusinessSettings = {
   manage_link_ttl_hours: number;
   payment_methods: string[];
   whatsapp_session_id: string | null;
+  payment_provider: string;
+  owner_notify_phone: string | null;
+  owner_notify_enabled: boolean;
 };
 
 export type Service = {
