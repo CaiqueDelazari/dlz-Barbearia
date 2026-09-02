@@ -10,10 +10,10 @@ import {
 export const dynamic = 'force-dynamic';
 
 /** Consulta do cliente pelo link seguro - sem senha, com token de prazo limitado. */
-export const GET = route(async (req: Request, { params }: { params: { token: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ token: string }> }) => {
   await rateLimit(`booking-view:${clientIp(req)}`, 60, 60_000);
 
-  const booking = await getBookingByToken(params.token);
+  const booking = await getBookingByToken((await params).token);
   const [tenant, settings] = await Promise.all([
     getTenantById(booking.tenantId),
     getSettings(booking.tenantId),
@@ -53,11 +53,11 @@ const patchSchema = z.object({
   professionalId: z.string().uuid().nullable().optional(),
 });
 
-export const PATCH = route(async (req: Request, { params }: { params: { token: string } }) => {
+export const PATCH = route(async (req: Request, { params }: { params: Promise<{ token: string }> }) => {
   const ip = clientIp(req);
   await rateLimit(`booking-change:${ip}`, 10, 60_000);
 
-  const booking = await getBookingByToken(params.token);
+  const booking = await getBookingByToken((await params).token);
   const body = await parseBody(req, patchSchema);
 
   const belongs = booking.appointments.some((a) => a.id === body.appointmentId);
@@ -75,13 +75,13 @@ export const PATCH = route(async (req: Request, { params }: { params: { token: s
   return ok({ appointment: updated });
 });
 
-export const DELETE = route(async (req: Request, { params }: { params: { token: string } }) => {
+export const DELETE = route(async (req: Request, { params }: { params: Promise<{ token: string }> }) => {
   const ip = clientIp(req);
   await rateLimit(`booking-cancel:${ip}`, 10, 60_000);
 
   const url = new URL(req.url);
   await cancelByClient({
-    token: params.token,
+    token: (await params).token,
     appointmentId: url.searchParams.get('appointmentId') ?? undefined,
     reason: url.searchParams.get('reason') ?? undefined,
     ip,

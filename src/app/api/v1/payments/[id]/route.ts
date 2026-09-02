@@ -15,7 +15,7 @@ const paramsSchema = z.object({ id: z.string().uuid() });
  * do Postgres no log), o limite por IP torna varredura inviável, e o
  * `manageToken` só sai depois que o pagamento é confirmado.
  */
-export const GET = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   await rateLimit(`payment-status:${clientIp(req)}`, 120, 60_000);
 
   const { id } = paramsSchema.parse(params);

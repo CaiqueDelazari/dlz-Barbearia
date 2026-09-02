@@ -21,13 +21,13 @@ const schema = z.object({
   professionalIds: z.array(z.string().uuid()).optional(),
 });
 
-export const PATCH = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const PATCH = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireRole(req, 'ADMIN');
   const body = await parseBody(req, schema);
 
   const before = await queryOne(
     `SELECT ${SELECT} FROM services WHERE tenant_id = $1 AND id = $2`,
-    [session.tenantId, params.id]
+    [session.tenantId, (await params).id]
   );
   if (!before) throw ApiError.notFound('Servico nao encontrado');
 
@@ -43,7 +43,7 @@ export const PATCH = route(async (req: Request, { params }: { params: { id: stri
   };
 
   const sets: string[] = [];
-  const values: unknown[] = [session.tenantId, params.id];
+  const values: unknown[] = [session.tenantId, (await params).id];
   for (const [key, column] of Object.entries(map)) {
     const value = (body as Record<string, unknown>)[key];
     if (value !== undefined) {
@@ -62,14 +62,14 @@ export const PATCH = route(async (req: Request, { params }: { params: { id: stri
   if (body.professionalIds) {
     await query('DELETE FROM professional_services WHERE tenant_id = $1 AND service_id = $2', [
       session.tenantId,
-      params.id,
+      (await params).id,
     ]);
     for (const professionalId of body.professionalIds) {
       await query(
         `INSERT INTO professional_services (tenant_id, professional_id, service_id)
          SELECT $1, $2, $3 WHERE EXISTS (SELECT 1 FROM professionals WHERE id = $2 AND tenant_id = $1)
          ON CONFLICT DO NOTHING`,
-        [session.tenantId, professionalId, params.id]
+        [session.tenantId, professionalId, (await params).id]
       );
     }
   }
@@ -79,7 +79,7 @@ export const PATCH = route(async (req: Request, { params }: { params: { id: stri
     userId: session.userId,
     action: 'service.update',
     entity: 'service',
-    entityId: params.id,
+    entityId: (await params).id,
     before,
     after: body,
     ip: clientIp(req),
@@ -89,22 +89,22 @@ export const PATCH = route(async (req: Request, { params }: { params: { id: stri
 });
 
 /** Servico com historico nunca some: vira inativo para nao quebrar relatorios. */
-export const DELETE = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const DELETE = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireRole(req, 'ADMIN');
 
   const used = await queryOne<{ count: string }>(
     `SELECT count(*)::text AS count FROM appointment_services
       WHERE tenant_id = $1 AND service_id = $2`,
-    [session.tenantId, params.id]
+    [session.tenantId, (await params).id]
   );
 
   if (Number(used?.count ?? 0) > 0) {
     await query('UPDATE services SET active = false WHERE tenant_id = $1 AND id = $2', [
       session.tenantId,
-      params.id,
+      (await params).id,
     ]);
   } else {
-    await query('DELETE FROM services WHERE tenant_id = $1 AND id = $2', [session.tenantId, params.id]);
+    await query('DELETE FROM services WHERE tenant_id = $1 AND id = $2', [session.tenantId, (await params).id]);
   }
 
   await audit({
@@ -112,7 +112,7 @@ export const DELETE = route(async (req: Request, { params }: { params: { id: str
     userId: session.userId,
     action: 'service.delete',
     entity: 'service',
-    entityId: params.id,
+    entityId: (await params).id,
     ip: clientIp(req),
   });
 

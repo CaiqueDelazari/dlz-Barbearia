@@ -43,8 +43,8 @@ async function loadPage(slug: string) {
   }
 }
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const data = await loadPage(params.slug);
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const data = await loadPage((await params).slug);
   if (!data) return { title: 'Página não encontrada' };
   return {
     title: `${data.tenant.name} | Agende seu horário`,
@@ -56,8 +56,8 @@ export async function generateMetadata({ params }: { params: { slug: string } })
  * Pagina publica da empresa. Renderiza no servidor com os dados ja carregados
  * para o cliente abrir o link do Instagram/WhatsApp e ver a lista na hora.
  */
-export default async function AgendarPage({ params }: { params: { slug: string } }) {
-  const data = await loadPage(params.slug);
+export default async function AgendarPage({ params }: { params: Promise<{ slug: string }> }) {
+  const data = await loadPage((await params).slug);
   if (!data) notFound();
 
   const { tenant, settings, services, professionals, products } = data;

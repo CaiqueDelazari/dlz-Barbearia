@@ -5,9 +5,9 @@ import { cancelSale, getSale } from '@/server/services/sale.service';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
-  const sale = await getSale(session.tenantId, params.id);
+  const sale = await getSale(session.tenantId, (await params).id);
   return ok({ sale });
 });
 
@@ -21,14 +21,14 @@ const cancelSchema = z.object({ reason: z.string().max(200).optional() });
  * tirar dinheiro do caixa é a operação que alguém usaria para encobrir um
  * desvio. Fica com quem responde pelo caixa, e o audit log guarda quem foi.
  */
-export const DELETE = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const DELETE = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireRole(req, 'ADMIN');
   const { reason } = parseQuery(req, cancelSchema);
 
   const sale = await cancelSale({
     tenantId: session.tenantId,
     userId: session.userId,
-    id: params.id,
+    id: (await params).id,
     reason: reason ?? null,
     ip: clientIp(req),
   });

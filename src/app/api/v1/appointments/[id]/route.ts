@@ -6,9 +6,9 @@ import { escopoDeAgenda } from '@/server/services/escopo.service';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
-  const appointment = await getAppointment(session.tenantId, params.id);
+  const appointment = await getAppointment(session.tenantId, (await params).id);
 
   // Filtrar a listagem nao basta: sem esta checagem, um STAFF que soubesse o id
   // abriria o atendimento de qualquer colega -- com nome, telefone e valores.
@@ -29,17 +29,17 @@ const patchSchema = z.object({
 });
 
 /** Painel: muda status e/ou remarca. Aqui a janela minima do cliente nao se aplica. */
-export const PATCH = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const PATCH = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
   const ip = clientIp(req);
   const body = await parseBody(req, patchSchema);
 
-  let appointment = await getAppointment(session.tenantId, params.id);
+  let appointment = await getAppointment(session.tenantId, (await params).id);
 
   if (body.startsAt) {
     appointment = await rescheduleAppointment({
       tenantId: session.tenantId,
-      appointmentId: params.id,
+      appointmentId: (await params).id,
       startsAt: body.startsAt,
       professionalId: body.professionalId ?? undefined,
       userId: session.userId,
@@ -51,7 +51,7 @@ export const PATCH = route(async (req: Request, { params }: { params: { id: stri
   if (body.status) {
     appointment = await setStatus({
       tenantId: session.tenantId,
-      appointmentId: params.id,
+      appointmentId: (await params).id,
       status: body.status,
       userId: session.userId,
       reason: body.reason ?? null,
@@ -62,12 +62,12 @@ export const PATCH = route(async (req: Request, { params }: { params: { id: stri
   return ok({ appointment });
 });
 
-export const DELETE = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const DELETE = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
   const url = new URL(req.url);
   const appointment = await setStatus({
     tenantId: session.tenantId,
-    appointmentId: params.id,
+    appointmentId: (await params).id,
     status: 'cancelled',
     userId: session.userId,
     reason: url.searchParams.get('reason') ?? 'Cancelado pelo painel',

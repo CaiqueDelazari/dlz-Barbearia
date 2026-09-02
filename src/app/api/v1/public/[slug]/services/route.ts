@@ -4,10 +4,10 @@ import { getTenantBySlug } from '@/server/repositories/tenant.repo';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = route(async (req: Request, { params }: { params: { slug: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ slug: string }> }) => {
   await rateLimit(`public-services:${clientIp(req)}`, 120, 60_000);
 
-  const tenant = await getTenantBySlug(params.slug);
+  const tenant = await getTenantBySlug((await params).slug);
   const services = await query(
     `SELECT id, name, description, price::float8 AS price, duration_minutes AS "durationMinutes",
             image_url AS "imageUrl", category

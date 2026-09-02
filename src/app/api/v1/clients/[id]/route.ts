@@ -8,7 +8,7 @@ import { escopoDeAgenda } from '@/server/services/escopo.service';
 export const dynamic = 'force-dynamic';
 
 /** Ficha completa: historico, servicos mais usados, total gasto, proximo horario. */
-export const GET = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
 
   // Filtrar a lista nao basta: com o id na mao, um STAFF abriria a ficha de
@@ -19,12 +19,12 @@ export const GET = route(async (req: Request, { params }: { params: { id: string
       `SELECT 1 FROM appointments
         WHERE tenant_id = $1 AND client_id = $2 AND professional_id = $3
         LIMIT 1`,
-      [session.tenantId, params.id, escopo || '00000000-0000-0000-0000-000000000000']
+      [session.tenantId, (await params).id, escopo || '00000000-0000-0000-0000-000000000000']
     );
     if (atendeu.length === 0) throw ApiError.notFound('Cliente nao encontrado');
   }
 
-  return ok(await getClientHistory(session.tenantId, params.id));
+  return ok(await getClientHistory(session.tenantId, (await params).id));
 });
 
 const schema = z.object({
@@ -35,7 +35,7 @@ const schema = z.object({
   blocked: z.boolean().optional(),
 });
 
-export const PATCH = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const PATCH = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
   const body = await parseBody(req, schema);
 
@@ -48,7 +48,7 @@ export const PATCH = route(async (req: Request, { params }: { params: { id: stri
   };
 
   const sets: string[] = [];
-  const values: unknown[] = [session.tenantId, params.id];
+  const values: unknown[] = [session.tenantId, (await params).id];
   for (const [key, column] of Object.entries(map)) {
     let value = (body as Record<string, unknown>)[key];
     if (value === undefined) continue;
@@ -70,7 +70,7 @@ export const PATCH = route(async (req: Request, { params }: { params: { id: stri
     userId: session.userId,
     action: 'client.update',
     entity: 'client',
-    entityId: params.id,
+    entityId: (await params).id,
     after: body,
     ip: clientIp(req),
   });

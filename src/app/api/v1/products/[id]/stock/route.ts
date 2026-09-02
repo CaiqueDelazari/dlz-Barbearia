@@ -13,14 +13,14 @@ const schema = z.object({
 });
 
 /** Entrada de mercadoria, ajuste de contagem ou perda. Tudo vira movimento. */
-export const POST = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const POST = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireRole(req, 'ADMIN');
   const body = await parseBody(req, schema);
 
   const product = await moveStock({
     tenantId: session.tenantId,
     userId: session.userId,
-    productId: params.id,
+    productId: (await params).id,
     quantity: body.quantity,
     reason: body.reason ?? 'restock',
     notes: body.notes ?? null,
@@ -31,7 +31,7 @@ export const POST = route(async (req: Request, { params }: { params: { id: strin
     userId: session.userId,
     action: 'product.stock',
     entity: 'product',
-    entityId: params.id,
+    entityId: (await params).id,
     after: body,
   });
 

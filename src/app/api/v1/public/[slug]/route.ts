@@ -5,10 +5,10 @@ import { getTenantBySlug, getSettings } from '@/server/repositories/tenant.repo'
 export const dynamic = 'force-dynamic';
 
 /** Dados publicos da pagina de agendamento. Nada de configuracao sensivel aqui. */
-export const GET = route(async (req: Request, { params }: { params: { slug: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ slug: string }> }) => {
   await rateLimit(`public-tenant:${clientIp(req)}`, 120, 60_000);
 
-  const tenant = await getTenantBySlug(params.slug);
+  const tenant = await getTenantBySlug((await params).slug);
   const settings = await getSettings(tenant.id);
 
   const hours = await query(

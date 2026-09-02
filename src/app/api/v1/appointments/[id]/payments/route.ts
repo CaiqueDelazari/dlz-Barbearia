@@ -7,9 +7,9 @@ import { registerManualPayment } from '@/server/services/payment/payment.service
 
 export const dynamic = 'force-dynamic';
 
-export const GET = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
-  const appointment = await getAppointment(session.tenantId, params.id);
+  const appointment = await getAppointment(session.tenantId, (await params).id);
 
   const payments = await query(
     `SELECT id, amount::float8 AS amount, kind, method, status, provider, paid_at, created_at,
@@ -38,19 +38,19 @@ const schema = z.object({
 });
 
 /** Registro de pagamento presencial (dinheiro, maquininha, Pix na hora). */
-export const POST = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const POST = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
   const body = await parseBody(req, schema);
 
   await registerManualPayment({
     tenantId: session.tenantId,
-    appointmentId: params.id,
+    appointmentId: (await params).id,
     amount: body.amount,
     method: body.method,
     userId: session.userId,
     ip: clientIp(req),
   });
 
-  const appointment = await getAppointment(session.tenantId, params.id);
+  const appointment = await getAppointment(session.tenantId, (await params).id);
   return ok({ appointment }, 201);
 });

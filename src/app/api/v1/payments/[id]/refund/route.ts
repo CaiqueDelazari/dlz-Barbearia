@@ -23,7 +23,7 @@ const bodySchema = z.object({
  * O `tenantId` vem da sessao, nunca do corpo: o servico filtra por ele, entao
  * um id de pagamento de outra empresa da 404 em vez de estornar o caixa alheio.
  */
-export const POST = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const POST = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireRole(req, 'ADMIN');
   const { id } = paramsSchema.parse(params);
   const body = await parseBody(req, bodySchema);

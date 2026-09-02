@@ -12,10 +12,10 @@ export const dynamic = 'force-dynamic';
  * Sempre respondemos 200 quando o evento foi recebido: erro nosso nao deve
  * fazer o gateway reenviar em loop - fica registrado para reprocessar.
  */
-export async function POST(req: Request, { params }: { params: { provider: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> }) {
   const rawBody = await req.text();
   try {
-    const result = await handleWebhook(params.provider, req, rawBody);
+    const result = await handleWebhook((await params).provider, req, rawBody);
     return ok(result);
   } catch (err) {
     const status = (err as { status?: number }).status;

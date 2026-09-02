@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Check, CreditCard, Loader2 } from 'lucide-react';
 import { api, shortMoney } from '@/lib/api-client';
@@ -11,16 +12,17 @@ import { api, shortMoney } from '@/lib/api-client';
  * confirmacao - antes de plugar o gateway real. Com PAYMENT_PROVIDER=mercadopago
  * o webhook aqui e recusado, entao a pagina fica inofensiva.
  */
-export default function SimulatedPaymentPage({ params }: { params: { id: string } }) {
+export default function SimulatedPaymentPage() {
+  const { id } = useParams<{ id: string }>();
   const [payment, setPayment] = useState<{ amount: number; status: string; manage_token: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     api
-      .get<{ payment: { amount: number; status: string; manage_token: string | null } }>(`/payments/${params.id}`)
+      .get<{ payment: { amount: number; status: string; manage_token: string | null } }>(`/payments/${id}`)
       .then((r) => setPayment(r.payment))
       .catch(() => toast.error('Pagamento não encontrado'));
-  }, [params.id]);
+  }, [id]);
 
   async function simulate(status: 'paid' | 'failed') {
     setBusy(true);
@@ -28,11 +30,11 @@ export default function SimulatedPaymentPage({ params }: { params: { id: string 
       const res = await fetch('/api/v1/payments/webhook/manual', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ paymentId: params.id, status, eventId: `sim-${params.id}-${status}` }),
+        body: JSON.stringify({ paymentId: id, status, eventId: `sim-${id}-${status}` }),
       });
       if (!res.ok) throw new Error('falha');
       toast.success(status === 'paid' ? 'Pagamento aprovado' : 'Pagamento recusado');
-      const updated = await api.get<{ payment: typeof payment }>(`/payments/${params.id}`);
+      const updated = await api.get<{ payment: typeof payment }>(`/payments/${id}`);
       setPayment(updated.payment);
     } catch {
       toast.error('Não foi possível simular o pagamento');

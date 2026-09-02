@@ -6,11 +6,11 @@ import { deleteProduct, getProduct, stockHistory, updateProduct } from '@/server
 
 export const dynamic = 'force-dynamic';
 
-export const GET = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireRole(req, 'STAFF');
   const [product, movements] = await Promise.all([
-    getProduct(session.tenantId, params.id),
-    stockHistory(session.tenantId, params.id),
+    getProduct(session.tenantId, (await params).id),
+    stockHistory(session.tenantId, (await params).id),
   ]);
   return ok({ product, movements });
 });
@@ -30,19 +30,19 @@ const schema = z.object({
   active: z.boolean().optional(),
 });
 
-export const PATCH = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const PATCH = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireRole(req, 'ADMIN');
   const data = await parseBody(req, schema);
   const product = await updateProduct({
     tenantId: session.tenantId,
     userId: session.userId,
-    id: params.id,
+    id: (await params).id,
     data,
   });
   return ok({ product });
 });
 
-export const DELETE = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const DELETE = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireRole(req, 'ADMIN');
-  return ok(await deleteProduct(session.tenantId, session.userId, params.id));
+  return ok(await deleteProduct(session.tenantId, session.userId, (await params).id));
 });

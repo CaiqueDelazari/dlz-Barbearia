@@ -10,10 +10,10 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export const GET = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
-  await getAppointment(session.tenantId, params.id); // valida o tenant
-  return ok({ products: await listAppointmentProducts(session.tenantId, params.id) });
+  await getAppointment(session.tenantId, (await params).id); // valida o tenant
+  return ok({ products: await listAppointmentProducts(session.tenantId, (await params).id) });
 });
 
 const schema = z.object({
@@ -23,14 +23,14 @@ const schema = z.object({
 });
 
 /** Vende um produto dentro do atendimento: soma no total e baixa o estoque. */
-export const POST = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const POST = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
   const body = await parseBody(req, schema);
 
   const sale = await addProductToAppointment({
     tenantId: session.tenantId,
     userId: session.userId,
-    appointmentId: params.id,
+    appointmentId: (await params).id,
     productId: body.productId,
     quantity: body.quantity ?? 1,
     allowNegativeStock: body.allowNegativeStock,
@@ -41,16 +41,16 @@ export const POST = route(async (req: Request, { params }: { params: { id: strin
     userId: session.userId,
     action: 'product.sale',
     entity: 'appointment',
-    entityId: params.id,
+    entityId: (await params).id,
     after: { productId: body.productId, quantity: body.quantity, total: sale.total },
   });
 
-  const appointment = await getAppointment(session.tenantId, params.id);
+  const appointment = await getAppointment(session.tenantId, (await params).id);
   return ok({ sale, appointment }, 201);
 });
 
 /** Desfaz a venda: devolve ao estoque e tira do total. */
-export const DELETE = route(async (req: Request, { params }: { params: { id: string } }) => {
+export const DELETE = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
   const saleId = new URL(req.url).searchParams.get('saleId');
   if (!saleId) return ok({ error: 'informe saleId' }, 400);
@@ -58,7 +58,7 @@ export const DELETE = route(async (req: Request, { params }: { params: { id: str
   await removeProductFromAppointment({
     tenantId: session.tenantId,
     userId: session.userId,
-    appointmentId: params.id,
+    appointmentId: (await params).id,
     saleId,
   });
 
@@ -67,10 +67,10 @@ export const DELETE = route(async (req: Request, { params }: { params: { id: str
     userId: session.userId,
     action: 'product.sale.remove',
     entity: 'appointment',
-    entityId: params.id,
+    entityId: (await params).id,
     after: { saleId },
   });
 
-  const appointment = await getAppointment(session.tenantId, params.id);
+  const appointment = await getAppointment(session.tenantId, (await params).id);
   return ok({ appointment });
 });

@@ -13,10 +13,10 @@ export const dynamic = 'force-dynamic';
  * assunto de quem está do lado de fora, e um `SELECT *` distraído entregaria os
  * dois de graça para qualquer um que abrisse a URL.
  */
-export const GET = route(async (req: Request, { params }: { params: { slug: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ slug: string }> }) => {
   await rateLimit(`public-products:${clientIp(req)}`, 120, 60_000);
 
-  const tenant = await getTenantBySlug(params.slug);
+  const tenant = await getTenantBySlug((await params).slug);
   const products = await query(
     `SELECT id, name, description, brand, category,
             price::float8 AS price, image_url AS "imageUrl"

@@ -27,11 +27,11 @@ const schema = z.object({
  * Cria a reserva do cliente. Se a empresa exige pagamento online, nasce como
  * 'pending' com prazo de expiracao - so o webhook do gateway confirma.
  */
-export const POST = route(async (req: Request, { params }: { params: { slug: string } }) => {
+export const POST = route(async (req: Request, { params }: { params: Promise<{ slug: string }> }) => {
   const ip = clientIp(req);
   await rateLimit(`booking:${ip}`, 10, 60_000);
 
-  const tenant = await getTenantBySlug(params.slug);
+  const tenant = await getTenantBySlug((await params).slug);
   const settings = await getSettings(tenant.id);
   const body = await parseBody(req, schema);
 

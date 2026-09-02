@@ -9,10 +9,10 @@ export const dynamic = 'force-dynamic';
 const schema = z.object({ services: z.string().optional() });
 
 /** Profissionais que atendem os servicos escolhidos (ou todos, se nao houver filtro). */
-export const GET = route(async (req: Request, { params }: { params: { slug: string } }) => {
+export const GET = route(async (req: Request, { params }: { params: Promise<{ slug: string }> }) => {
   await rateLimit(`public-professionals:${clientIp(req)}`, 120, 60_000);
 
-  const tenant = await getTenantBySlug(params.slug);
+  const tenant = await getTenantBySlug((await params).slug);
   const { services } = parseQuery(req, schema);
   const serviceIds = services ? services.split(',').filter(Boolean) : [];
 
