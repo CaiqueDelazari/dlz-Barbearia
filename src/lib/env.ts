@@ -89,10 +89,4 @@ export const env = {
     mercadopagoToken: process.env.MERCADOPAGO_ACCESS_TOKEN ?? '',
     mercadopagoWebhookSecret: process.env.MERCADOPAGO_WEBHOOK_SECRET ?? '',
   },
-
-  ai: {
-    enabled: process.env.AI_ENABLED === 'true',
-    apiKey: process.env.ANTHROPIC_API_KEY ?? '',
-    model: process.env.AI_MODEL ?? 'claude-opus-5',
-  },
 };

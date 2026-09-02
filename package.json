@@ -18,7 +18,6 @@
     "check:env": "node scripts/check-env.mjs --strict"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.70.0",
     "bcryptjs": "^3.0.2",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
