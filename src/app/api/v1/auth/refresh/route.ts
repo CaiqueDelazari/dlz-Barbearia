@@ -18,7 +18,7 @@ export const POST = route(async (req: Request) => {
   // sem isto, um cookie roubado (ou chutado) pode ser testado a vontade
   await rateLimit(`refresh:${clientIp(req)}`, 60, 5 * 60_000);
 
-  const provided = cookies().get(REFRESH_COOKIE)?.value ?? '';
+  const provided = (await cookies()).get(REFRESH_COOKIE)?.value ?? '';
   if (!provided) throw ApiError.unauthorized('Sessao nao encontrada');
 
   const stored = await queryOne<{
@@ -58,6 +58,6 @@ export const POST = route(async (req: Request) => {
     [stored.user_id, stored.tenant_id, next.hash, String(env.refreshTtlDays), req.headers.get('user-agent') ?? null]
   );
 
-  setAuthCookies(access, next.token);
+  await setAuthCookies(access, next.token);
   return ok({ user: session, accessToken: access });
 });

@@ -6,10 +6,10 @@ import { REFRESH_COOKIE, clearAuthCookies, sha256 } from '@/lib/auth';
 export const dynamic = 'force-dynamic';
 
 export const POST = route(async () => {
-  const token = cookies().get(REFRESH_COOKIE)?.value;
+  const token = (await cookies()).get(REFRESH_COOKIE)?.value;
   if (token) {
     await query('UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1', [sha256(token)]);
   }
-  clearAuthCookies();
+  await clearAuthCookies();
   return ok({ loggedOut: true });
 });

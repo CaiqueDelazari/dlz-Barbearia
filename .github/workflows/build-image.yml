@@ -12,6 +12,13 @@ permissions:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://test:test@127.0.0.1:5432/test
+      JWT_SECRET: test-only-jwt-secret-with-more-than-32-characters
+      CRON_SECRET: test-only-cron-secret-with-more-than-32-characters
+      APP_URL: https://dlzbarbearia.com.br
+      NEXT_PUBLIC_APP_URL: https://dlzbarbearia.com.br
+      WHATSAPP_ENABLED: "false"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

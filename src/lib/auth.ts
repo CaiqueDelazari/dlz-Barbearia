@@ -80,7 +80,7 @@ function bearerFrom(req: Request): string | null {
 }
 
 export async function getSession(req: Request): Promise<Session | null> {
-  const token = bearerFrom(req) ?? cookies().get(ACCESS_COOKIE)?.value ?? null;
+  const token = bearerFrom(req) ?? (await cookies()).get(ACCESS_COOKIE)?.value ?? null;
   if (!token) return null;
   try {
     return await verifyAccessToken(token);
@@ -143,9 +143,9 @@ export function assertSameTenant(session: Session, tenantId: string | null | und
 }
 
 // ------------------------------------------------------------------ cookies
-export function setAuthCookies(access: string, refresh: string): void {
+export async function setAuthCookies(access: string, refresh: string): Promise<void> {
   const isProd = process.env.NODE_ENV === 'production';
-  const jar = cookies();
+  const jar = await cookies();
   jar.set(ACCESS_COOKIE, access, {
     httpOnly: true,
     secure: isProd,
@@ -162,8 +162,8 @@ export function setAuthCookies(access: string, refresh: string): void {
   });
 }
 
-export function clearAuthCookies(): void {
-  const jar = cookies();
+export async function clearAuthCookies(): Promise<void> {
+  const jar = await cookies();
   jar.delete(ACCESS_COOKIE);
   jar.delete(REFRESH_COOKIE);
 }

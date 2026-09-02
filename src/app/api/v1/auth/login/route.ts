@@ -94,7 +94,7 @@ export const POST = route(async (req: Request) => {
   );
 
   await query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
-  setAuthCookies(access, refresh.token);
+  await setAuthCookies(access, refresh.token);
 
   await audit({
     tenantId: user.tenant_id,
