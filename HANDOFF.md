@@ -6,20 +6,20 @@ porquê das decisões que **não devem ser desfeitas sem entender o motivo**.
 
 ---
 
-## 1. Nada disto está commitado
+## 1. Já está commitado — *atualizado em 03/09/2026*
 
-O último commit é `544d951`. Há **36 arquivos** modificados/novos na árvore de
-trabalho, e o repositório remoto (`CaiqueDelazari/dlz-Barbearia`) está
-desatualizado.
-
-Sugestão de divisão, se for commitar:
-
-1. Remoção da IA
-2. Avisos para a barbearia + pareamento do WhatsApp pelo painel
-3. **Correções de segurança** — vale um commit próprio; são quatro, descritas
-   abaixo, e é bom que apareçam sozinhas no histórico
+Estava tudo na árvore de trabalho quando este arquivo nasceu. Foi para o remoto
+depois, em duas levas: a remoção da IA, os avisos + pareamento e as correções de
+segurança de uma vez; depois o Next 15, a imagem de produção e o cadastro do
+Riady.
 
 Autor a usar: `Caique Delazari <caiqueusc@hotmail.com>`.
+
+> Cuidado com o que aconteceu aqui em 03/09: uma cópia local ficou com o mesmo
+> trabalho **não commitado** enquanto o remoto já o tinha commitado, e ainda
+> tinha o Next 15 e a imagem por cima. O push foi recusado, o que salvou o dia —
+> `git fetch` antes de commitar teria economizado a confusão. Nada de force
+> push nesse repositório: ele é escrito de mais de um lugar.
 
 ---
 
@@ -55,7 +55,7 @@ DATABASE_URL=postgresql://postgres:<SENHA>@db.levzbjfazivtgklbcphw.supabase.co:5
 
 ---
 
-## 3. As quatro correções de segurança
+## 3. As cinco correções de segurança
 
 Todas seguem o mesmo padrão de defeito: **recurso compartilhado sem escopo de
 tenant/usuário**. Se for mexer perto delas, entenda antes.
@@ -135,6 +135,44 @@ poder desligar na hora.
 Dois níveis de corte: `professionals.active = false` tira da agenda mas mantém o
 login; `users.active = false` corta o acesso inteiro.
 
+### 3.5 Webhook do simulador aberto em produção — *03/09/2026*
+
+Regressão da própria correção 3.2, encontrada depois. Antes dela o webhook usava
+o provider global e comparava o nome: um deploy com `PAYMENT_PROVIDER=mercadopago`
+recusava `/api/v1/payments/webhook/manual` porque não batia. Ao mover o gateway
+para a loja, `getProviderByName` passou a devolver o `ManualProvider` **sempre**,
+sem olhar o ambiente.
+
+O `ManualProvider` é o simulador: o `parseWebhook` dele não confere assinatura
+nenhuma — acredita no corpo do POST. Com um gateway de verdade ligado, o próprio
+cliente abriria o checkout, pegaria o `paymentId` que a resposta devolve e daria
+
+```
+POST /api/v1/payments/webhook/manual
+{"paymentId":"<o dele>","status":"paid","eventId":"x"}
+```
+
+confirmando o horário sem um centavo entrar. Nada a adivinhar.
+
+Duas camadas fecham:
+
+1. `getProviderByName` só entrega o `manual` fora de produção. Pagamento
+   presencial não passa por webhook — vai por `registerManualPayment`, que exige
+   sessão —, então produção não perde nada. Vale para preview da Vercel também,
+   onde `NODE_ENV` já é `production`.
+2. `handleWebhook` passou a buscar o pagamento por **id + provider**. Sem isso o
+   id sozinho não diz de quem a cobrança é, e um webhook de um gateway quitaria
+   a cobrança criada por outro.
+
+> O `tests/pagamento-por-loja.test.ts` afirmava o comportamento errado como
+> esperado (`getProviderByName('manual')` devolvendo provider com o deploy em
+> mercadopago). O teste foi corrigido junto — é o tipo de linha que faz a
+> próxima pessoa "consertar" de volta.
+
+Hoje nada disso era explorável: as duas lojas estão em `manual` com
+`online_payment_required = false`. Precisava estar fechado antes do primeiro
+`payment_provider = 'pagarme'`.
+
 ---
 
 ## 4. O que mudou além da segurança
@@ -161,19 +199,38 @@ login; `users.active = false` corta o acesso inteiro.
 
 **Bloqueado em terceiros**
 
-1. **Senha do banco** — sem ela a aplicação não sobe (o `check:env` derruba o
-   build antes do `next build`).
+1. ~~Senha do banco~~ — **resolvido em 03/09/2026.** Foi criado o usuário
+   `barbearia_app`, restrito ao schema `barbearia`, e a credencial vive no
+   `.env` da VPS — não no repositório, não neste arquivo. A senha do `postgres`
+   não foi tocada.
+   > Na `DATABASE_URL` **não** use `sslmode=require`: o `pg` monta a própria
+   > config de TLS a partir do parâmetro e passa a verificar a cadeia, o que dá
+   > `SELF_SIGNED_CERT_IN_CHAIN` contra o pooler do Supabase. Use
+   > `DATABASE_SSL=true`, que é o caminho do `db.ts` e liga
+   > `rejectUnauthorized: false`. O `check:env` aceita as duas formas.
+   > A ressalva que vem junto: `rejectUnauthorized: false` criptografa mas não
+   > autentica o servidor. Para fechar de verdade, um dia, é fornecer o CA do
+   > Supabase em vez de desligar a verificação.
 2. **Credenciais Stone/Pagar.me** do Riady, o primeiro cliente.
 
 **Fazível agora**
 
-3. **Deploy.** O projeto **nunca foi publicado**. Não existe `.vercel/`. Duas
-   opções em aberto: VPS Hostinger KVM 2 já paga (2 vCPU, 8 GB, Ubuntu 24.04,
-   Docker + Caddy, IP `187.127.62.147`) ou Vercel — cuja conta é **Hobby com 9
-   projetos comerciais**, o que é risco de suspensão.
-   > Se for a VPS: tire o `docker compose build` de lá. Com 2 vCPUs, compilar
-   > Next.js satura a máquina e deixa o Safra (que roda ao lado) arrastado.
-   > Build no GitHub Actions, VPS só baixa a imagem.
+3. **Deploy — VPS, decidido em 03/09/2026.** A Vercel saiu da mesa: a conta é
+   Hobby com 9 projetos comerciais, e no Hobby o cron roda **uma vez por dia** —
+   com o worker parado, confirmação, lembrete de 24h, de 1h e aviso do dono
+   deixam de sair, que é a razão de ser do sistema. O `vercel.json` continua no
+   repositório e não atrapalha; fora da Vercel ele simplesmente não é lido.
+
+   Já existe: `Dockerfile` multi-stage, `.dockerignore` e o workflow
+   `build-image.yml`, que roda `tsc` + testes e publica
+   `ghcr.io/caiquedelazari/dlz-barbearia:latest`. O build sai do GitHub Actions
+   de propósito — com 2 vCPUs, compilar Next.js na VPS satura a máquina e deixa
+   o Safra (que roda ao lado) arrastado. A VPS só baixa a imagem.
+
+   Falta na VPS: `docker-compose`, o site no Caddy, e **um cron chamando
+   `/api/v1/jobs/run`** com o `Authorization: Bearer $CRON_SECRET`. Sem esse
+   último a fila enche e nenhuma mensagem sai — o sintoma é o pior tipo, tudo
+   parece certo no painel e o cliente não recebe nada.
 4. **`PagarmeProvider`.** Stone usa Pagar.me. O `MercadoPagoProvider` **não
    serve** — é escrever uma classe nova implementando `payment/provider.ts` (47
    linhas). Aceitar `'pagarme'` em `getProviderForSettings` e marcar só o Riady.
@@ -194,7 +251,7 @@ login; `users.active = false` corta o acesso inteiro.
 
 ```bash
 npx tsc --noEmit     # limpo
-npm test             # 57 testes, 0 falhas (5 pulados: Redis, sem container)
+npm test             # 64 testes, 0 falhas (5 pulados: Redis, sem container)
 npm run build        # compila
 # npm run lint       # NÃO funciona: sem config de ESLint
 ```

@@ -17,6 +17,10 @@ O cliente usa **Stone**, então o gateway é **Pagar.me** (mesma casa). O
 lado, implementando a mesma interface de `payment/provider.ts` (47 linhas: checkout, Pix,
 webhook assinado, consulta antes de acreditar no status).
 
+Quando for escrever: o webhook agora busca o pagamento por **id + provider**, e o nome
+precisa entrar em `getProviderByName` para o endpoint existir. O `manual` só é aceito fora
+de produção — é simulador, não gateway (ver §3.5 do HANDOFF).
+
 Até as chaves da Stone existirem, `PAYMENT_PROVIDER=manual` continua sendo a configuração
 correta. Lembrando a distinção de sempre: **maquininha não é integração**. Pagamento no
 balcão se registra como `card` e já funciona. O gateway online só entra para cobrar o
@@ -27,6 +31,12 @@ A fila funciona e está testada, e o contrato com o Bot-Whats foi conferido camp
 (`POST /send {session, phone, message}`, `Bearer` do `BOT_TOKEN`, `/status/:id`) — bate.
 Falta parear a sessão da barbearia e ver uma mensagem sair. Com o gateway desligado elas
 terminam como `skipped`.
+
+Dois furos nos avisos da loja foram fechados em 03/09/2026: em horários separados o dono
+recebia aviso só do primeiro item (marcou corte 14h + barba 16h, ele via só 14h), e no
+caminho com pagamento online — onde o agendamento nasce `pending` e só confirma no
+webhook — ele não recebia aviso nenhum. Este segundo só apareceria no dia em que a
+Pagar.me entrasse.
 
 O **atendimento por IA saiu do produto** (31/08/2026): o cliente quer o bot avisando, não
 respondendo. Foram removidos `services/ai/`, a rota `/api/v1/ai/chat`, o
@@ -55,7 +65,12 @@ migration foi pela conexão direta, que é o certo para DDL mas não exercita es
 
 ## Média
 
-### 4. Next.js 14 tem avisos de segurança sem correção no 14.x — *risco*
+### 4. ~~Next.js 14 tem avisos de segurança sem correção no 14.x~~ — **resolvido em 03/09/2026**
+
+Subiu para o **Next 15.5.24** e as rotas dinâmicas foram adaptadas (`params`
+virou assíncrono). O que está abaixo fica como registro do porquê da subida.
+
+
 `npm audit` acusa 2 severidades altas em `next@14.2.35` (a última do 14.x) e em `postcss`.
 O intervalo dos avisos vai até 16.3.0-preview.10: **não existe patch no 14.x**, só a
 migração para o Next 16, que quebra APIs (`params` virou assíncrono no 15).
