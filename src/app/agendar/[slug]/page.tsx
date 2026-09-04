@@ -85,6 +85,7 @@ export default async function AgendarPage({ params }: { params: Promise<{ slug: 
         allowSplit: settings.allow_split_appointments,
         maxAdvanceDays: settings.max_advance_days,
         holdMinutes: settings.hold_expiration_minutes,
+        allowClientCancel: settings.allow_client_cancel,
       }}
     />
   );

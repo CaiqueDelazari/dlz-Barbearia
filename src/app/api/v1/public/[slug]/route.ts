@@ -43,6 +43,11 @@ export const GET = route(async (req: Request, { params }: { params: Promise<{ sl
       maxAdvanceDays: settings.max_advance_days,
       holdMinutes: settings.hold_expiration_minutes,
       rescheduleNoticeMinutes: settings.minimum_reschedule_notice_minutes,
+      // A tela precisa saber disto para nao prometer o que a pagina de
+      // gerenciamento nao vai oferecer. Nao e' configuracao sensivel: o cliente
+      // descobre de qualquer jeito, a diferenca e' se descobre antes ou depois
+      // de precisar.
+      allowClientCancel: settings.allow_client_cancel,
     },
   });
 });

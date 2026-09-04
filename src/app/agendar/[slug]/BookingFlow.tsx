@@ -45,7 +45,18 @@ type BookingConfig = {
   allowSplit: boolean;
   maxAdvanceDays: number;
   holdMinutes: number;
+  allowClientCancel: boolean;
 };
+
+/**
+ * Onde o contato de quem já agendou fica guardado, no aparelho dele.
+ *
+ * Uma chave só, e não uma por loja: um domínio serve todas as barbearias, e a
+ * pessoa que agenda em duas é a mesma pessoa com o mesmo WhatsApp. Guardar por
+ * slug faria ela digitar de novo em cada loja, sem ganhar nada — o dado não sai
+ * do navegador dela de um jeito ou de outro.
+ */
+const CONTATO_KEY = 'agendar:contato';
 
 type Slot = {
   time: string;
@@ -135,6 +146,33 @@ export function BookingFlow({ tenant, services, professionals, products, config 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  /**
+   * Nome e WhatsApp de quem já agendou neste aparelho.
+   *
+   * Cliente de barbearia volta a cada duas ou três semanas, do mesmo celular, e
+   * digitava os dois campos toda vez — o passo mais chato de um fluxo que no
+   * resto é de tocar e seguir.
+   *
+   * Fica no aparelho, e não no servidor, porque a busca teria que ser pelo
+   * telefone: qualquer um digitaria um número e descobriria de quem é. Aqui o
+   * dado é do dono do celular, guardado no celular dele.
+   *
+   * Tudo em try/catch: aba anônima e navegador com dados de site bloqueados
+   * lançam no próprio acesso ao localStorage, e falhar em lembrar não pode
+   * impedir de agendar.
+   */
+  useEffect(() => {
+    try {
+      const salvo = localStorage.getItem(CONTATO_KEY);
+      if (!salvo) return;
+      const { name: n, phone: p } = JSON.parse(salvo) as { name?: string; phone?: string };
+      if (n) setName(n);
+      if (p) setPhone(p);
+    } catch {
+      // sem memória, o fluxo é o de sempre
+    }
+  }, []);
 
   const [booking, setBooking] = useState<{
     manageToken: string;
@@ -278,6 +316,14 @@ export function BookingFlow({ tenant, services, professionals, products, config 
         items,
         client: { name: name.trim(), phone },
       });
+
+      // Só depois de dar certo: guardar um telefone que o servidor recusou
+      // faria o erro voltar sozinho na próxima visita.
+      try {
+        localStorage.setItem(CONTATO_KEY, JSON.stringify({ name: name.trim(), phone }));
+      } catch {
+        // navegador sem armazenamento; o agendamento já está feito
+      }
 
       setBooking(result);
       setStep(result.requiresPayment ? 'payment' : 'done');
@@ -822,8 +868,12 @@ export function BookingFlow({ tenant, services, professionals, products, config 
               <h2 className="display text-2xl tracking-wide text-ink-100">
                 Até logo, {name.split(' ')[0]}
               </h2>
+              {/* "Enviamos" era dito antes de enviar: a confirmação entra na
+                  fila e sai quando o worker roda. Prometer no futuro é o que a
+                  tela consegue cumprir — e o resumo logo abaixo já mostra tudo,
+                  então nada depende da mensagem chegar. */}
               <p className="mt-2 text-sm leading-relaxed text-ink-400">
-                Seu horário está confirmado. Enviamos os detalhes no seu WhatsApp.
+                Seu horário está confirmado. Você vai receber os detalhes no seu WhatsApp.
               </p>
             </div>
 
@@ -839,13 +889,28 @@ export function BookingFlow({ tenant, services, professionals, products, config 
             />
 
             {tenant.address && (
-              <p className="flex items-center justify-center gap-1.5 text-xs text-ink-500">
+              // Abre no mapa em vez de virar texto para copiar na mão. Quem
+              // está vendo isto vai até lá — e no celular, uma barbearia nova
+              // se acha pelo mapa, não pelo nome da rua.
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  `${tenant.name} ${tenant.address}`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 text-xs text-ink-500 underline decoration-ink-700 underline-offset-4"
+              >
                 <MapPin size={12} strokeWidth={1.5} /> {tenant.address}
-              </p>
+              </a>
             )}
 
+            {/* O texto segue a configuração da loja. Com o cancelamento
+                desligado, prometer "cancelar" mandava o cliente para uma tela
+                sem o botão — e quem não consegue cancelar não avisa, só não
+                aparece. A falta o barbeiro descobre com a cadeira vazia, sem
+                tempo de encaixar outro. */}
             <a href={`/agendamento/${booking.manageToken}`} className="btn-ghost w-full">
-              Ver, remarcar ou cancelar
+              {config.allowClientCancel ? 'Ver, remarcar ou cancelar' : 'Ver ou remarcar'}
             </a>
           </section>
         )}

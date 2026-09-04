@@ -32,7 +32,12 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, string> = {
   confirmation:
     'Olá, {cliente}! ✅ Seu horário na {empresa} está confirmado.\n\n' +
     '🗓️ {data} às {hora}\n💈 {servicos}\n👤 {profissional}\n💰 Total: {valor_total}' +
-    '\n\nPara ver, remarcar ou cancelar: {link}',
+    // Fala só em remarcar de propósito. Cancelar pelo link é opcional
+    // (`allow_client_cancel`) e nasce desligado em várias lojas: prometer aqui
+    // manda o cliente para uma tela sem o botão, e quem não consegue cancelar
+    // não avisa — vira falta. Remarcar existe sempre. A loja que liberar o
+    // cancelamento pode acrescentar a palavra em Notificações.
+    '\n\nPara ver ou remarcar: {link}',
   reminder_24h:
     'Olá, {cliente}! Passando para lembrar que seu horário na {empresa} é amanhã às {hora}.\n\n' +
     '💈 {servicos}\n\nSe precisar remarcar: {link}',
