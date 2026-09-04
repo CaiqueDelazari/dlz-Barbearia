@@ -57,16 +57,51 @@ export function isSafeRemoteUrl(value: string): boolean {
 }
 
 /**
- * Campo de imagem vinda de fora (logo, foto do profissional, foto do produto).
+ * Arquivo servido pelo nosso próprio `public/` — `/riady/riady.jpg`.
  *
- * Enquanto o upload não existe, essas URLs apontam para qualquer lugar da
- * internet e o servidor as busca para otimizar. Sem esta trava, o painel vira
- * um proxy: bastaria salvar `https://169.254.169.254/...` como logo para fazer
- * a nossa infraestrutura buscar o endpoint de metadados da nuvem e devolver o
- * resultado como se fosse uma imagem.
+ * Não passa por `isSafeRemoteUrl` porque não é endereço de rede: é caminho de
+ * arquivo estático nosso, que nós mesmos colocamos no repositório.
+ *
+ * Três recusas, e cada uma fecha um jeito diferente de o caminho deixar de ser
+ * um arquivo do `public/`:
+ *
+ * - `//host/x.jpg` não é caminho, é URL sem esquema: o navegador (e o
+ *   otimizador) buscariam em `host`, que é exatamente o que a trava remota
+ *   existe para impedir.
+ * - `..` sairia de `public/`.
+ * - `/api/` é rota nossa, não arquivo. A extensão obrigatória já barraria
+ *   `/api/v1/appointments`, mas não barraria alguém criando uma rota que
+ *   termine em `.jpg` — então o prefixo é recusado por nome, e o otimizador
+ *   de imagem nunca vira um jeito de chamar nossas rotas sem sessão.
+ */
+function isCaminhoLocalDeImagem(value: string): boolean {
+  if (!value.startsWith('/') || value.startsWith('//')) return false;
+  if (value.includes('..')) return false;
+  if (/^\/api\//i.test(value)) return false;
+  return /^\/[A-Za-z0-9._~\-/]+\.(png|jpe?g|webp|avif|gif)$/i.test(value);
+}
+
+/**
+ * Campo de imagem (logo, foto do profissional, foto do produto).
+ *
+ * Aceita duas formas, e a diferença entre elas é quem hospeda o arquivo:
+ *
+ * 1. **URL https pública** — o dono cola o endereço de onde a imagem já mora.
+ *    Enquanto o upload não existe, esse endereço aponta para qualquer lugar da
+ *    internet e o servidor o busca para otimizar. Sem `isSafeRemoteUrl`, o
+ *    painel viraria um proxy: bastaria salvar `https://169.254.169.254/...`
+ *    como logo para a nossa infraestrutura buscar o endpoint de metadados da
+ *    nuvem e devolver o resultado como se fosse uma imagem.
+ *
+ * 2. **Caminho local** — arquivo que vive no `public/` deste repositório. É o
+ *    caso das imagens de implantação de um cliente, colocadas junto com o
+ *    código antes de existir tela de upload.
  */
 export const imageUrlSchema = z
   .string()
   .trim()
   .max(2048, 'URL muito longa')
-  .refine(isSafeRemoteUrl, 'Informe uma URL https pública (endereços internos não são aceitos)');
+  .refine(
+    (v) => isCaminhoLocalDeImagem(v) || isSafeRemoteUrl(v),
+    'Informe uma URL https pública ou um caminho de imagem do próprio site (endereços internos não são aceitos)'
+  );

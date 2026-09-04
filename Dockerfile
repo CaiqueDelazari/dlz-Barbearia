@@ -19,5 +19,8 @@ COPY --from=builder /app/node_modules ./node_modules
 RUN npm prune --omit=dev
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
+# `next start` serve o public/ do diretorio de trabalho -- sem esta linha a logo
+# e a foto do cliente respondem 404 em producao, e so em producao.
+COPY --from=builder /app/public ./public
 EXPOSE 3000
 CMD ["npm","start"]

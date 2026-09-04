@@ -10,6 +10,7 @@
     "lint": "next lint",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "node scripts/seed.mjs",
+    "db:seed:riady": "node scripts/seed-riady.mjs",
     "db:reset": "node scripts/migrate.mjs --reset",
     "jobs:run": "node scripts/run-jobs.mjs",
     "test": "tsx --env-file-if-exists=.env --test tests/*.test.ts",

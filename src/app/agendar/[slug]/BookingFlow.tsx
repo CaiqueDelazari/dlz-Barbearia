@@ -371,7 +371,30 @@ export function BookingFlow({ tenant, services, professionals, products, config 
           )}
 
           <div className="flex-1 text-center">
-            <p className="display text-[19px] leading-none tracking-wider text-ink-100">{tenant.name}</p>
+            {/* Com logo, ela fala pelo salao: repetir o nome embaixo seria dizer
+                duas vezes a mesma coisa num cabecalho que ja e apertado. O nome
+                continua no DOM para leitor de tela e para quando a imagem falhar. */}
+            {tenant.logoUrl ? (
+              <>
+                {/* Caixa alta e estreita porque a marca aqui e um brasao
+                    empilhado (monograma sobre duas linhas de texto), nao uma
+                    assinatura deitada. Numa caixa larga o `object-contain`
+                    encolheria pela altura e o nome viraria borrao. */}
+                <span className="relative mx-auto block h-12 w-[76px]">
+                  <Image
+                    src={tenant.logoUrl}
+                    alt={tenant.name}
+                    fill
+                    sizes="76px"
+                    className="object-contain"
+                    priority
+                  />
+                </span>
+                <span className="sr-only">{tenant.name}</span>
+              </>
+            ) : (
+              <p className="display text-[19px] leading-none tracking-wider text-ink-100">{tenant.name}</p>
+            )}
             <p className="eyebrow mt-1.5">{stepTitles[step]}</p>
           </div>
 
