@@ -166,6 +166,45 @@ async function botJson(
   }
 }
 
+/**
+ * Grava a auto-resposta da sessao no bot.
+ *
+ * O bot ja sabe responder sozinho: guarda um texto por sessao e o dispara para
+ * quem manda mensagem, pulando grupo, status, mensagem propria e sincronizacao
+ * de historico, com um cooldown por contato. O que faltava era alguem dizer a
+ * ele QUAL texto -- e o texto e' daqui, porque so este lado sabe o nome da loja
+ * e o link de agendamento dela.
+ *
+ * Isto NAO e' o atendente de IA que saiu do produto: e' uma frase fixa, sempre
+ * a mesma, que nao le nem interpreta o que o cliente escreveu.
+ */
+export async function setAutoReply(
+  sessionId: string,
+  cfg: { enabled: boolean; message: string }
+): Promise<boolean> {
+  if (!env.whatsapp.enabled || !env.whatsapp.apiUrl || !env.whatsapp.token) return false;
+  try {
+    const res = await fetch(
+      `${env.whatsapp.apiUrl.replace(/\/$/, '')}/config/${encodeURIComponent(sessionId)}`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${env.whatsapp.token}`,
+        },
+        body: JSON.stringify({
+          autoReplyEnabled: cfg.enabled,
+          autoReplyMessage: cfg.message,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Estado atual da sessao, sem forcar conexao. */
 export function sessionSnapshot(sessionId: string): Promise<SessionSnapshot | null> {
   return botJson(`/api/sessoes/${encodeURIComponent(sessionId)}`);

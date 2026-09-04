@@ -28,6 +28,21 @@ const TEMPLATE_LABEL: Record<string, string> = {
   return: 'Convite de retorno',
   cancelled: 'Aviso de cancelamento',
   payment_link: 'Link de pagamento',
+  owner_new: 'Para a loja: agendamento novo',
+  owner_cancelled: 'Para a loja: cancelamento',
+  owner_rescheduled: 'Para a loja: remarcação',
+  welcome: 'Resposta automática de boas-vindas',
+};
+
+/** Explicação de quando cada mensagem sai — o título não diz o suficiente. */
+const TEMPLATE_HINT: Record<string, string> = {
+  owner_new: 'Vai para o telefone de avisos, não para o cliente.',
+  owner_cancelled: 'Vai para o telefone de avisos, não para o cliente.',
+  owner_rescheduled: 'Vai para o telefone de avisos, não para o cliente.',
+  welcome:
+    'Sai sozinha quando alguém manda mensagem no WhatsApp da loja, uma vez a ' +
+    'cada 6 horas por contato. Só aceita {empresa} e {link_agendamento} — ' +
+    'quando ela sai, ainda não existe agendamento nenhum.',
 };
 
 const STATUS_CLASS: Record<string, string> = {
@@ -128,6 +143,10 @@ export default function NotificacoesPage() {
                     Ativa
                   </label>
                 </div>
+
+                {TEMPLATE_HINT[template.key] && (
+                  <p className="mb-2 text-xs text-ink-500">{TEMPLATE_HINT[template.key]}</p>
+                )}
 
                 <textarea
                   className="input h-28 resize-y text-sm"

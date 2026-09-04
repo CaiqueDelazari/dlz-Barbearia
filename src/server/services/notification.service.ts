@@ -2,7 +2,7 @@ import { query, queryOne } from '@/lib/db';
 import { env } from '@/lib/env';
 import { formatDateBR, utcToZoned } from '@/lib/datetime';
 import { getTenantContext } from '../repositories/tenant.repo';
-import { sendWhatsapp, sessionIdFor } from './whatsapp.service';
+import { sendWhatsapp, sessionIdFor, setAutoReply } from './whatsapp.service';
 
 /**
  * Notificacoes sao SEMPRE materializadas em linha na tabela `notifications`
@@ -22,7 +22,11 @@ export type TemplateKey =
   // cliente, e por isso nao levam link de gerenciamento nenhum.
   | 'owner_new'
   | 'owner_cancelled'
-  | 'owner_rescheduled';
+  | 'owner_rescheduled'
+  // Auto-resposta de quem manda mensagem no WhatsApp da loja. Unica que nao
+  // passa pela fila de `notifications`: quem dispara e' o bot, no instante em
+  // que a mensagem chega. Aqui mora so o texto, empurrado para a sessao dele.
+  | 'welcome';
 
 export const DEFAULT_TEMPLATES: Record<TemplateKey, string> = {
   confirmation:
@@ -52,7 +56,37 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, string> = {
   owner_rescheduled:
     '🔄 Remarcação\n\n{nome_completo} mudou para {data} às {hora}\n' +
     '💈 {servicos}\n👤 {profissional}',
+  welcome:
+    'Olá! 👋 Seja bem-vindo(a) à {empresa}!\n\n' +
+    'Para agendar seu corte, é só clicar aqui:\n{link_agendamento}\n\n' +
+    'Se preferir, pode falar por aqui mesmo — respondemos assim que der.',
 };
+
+/**
+ * As únicas variáveis que a auto-resposta consegue preencher.
+ *
+ * Ela sai antes de existir agendamento, cliente ou horário: quem dispara é o
+ * bot, no instante em que uma mensagem chega, e o único contexto que existe ali
+ * é a loja. Um `{cliente}` escrito neste texto chegaria ao cliente com as
+ * chaves na tela — por isso o salvamento recusa, em vez de deixar passar.
+ */
+export const WELCOME_VARS = ['empresa', 'link_agendamento'] as const;
+
+/**
+ * Toda chave de template que existe, derivada do objeto acima.
+ *
+ * Fica aqui, e nao numa lista escrita a mao na rota, porque ja aconteceu de as
+ * duas divergirem: os avisos do dono entraram no `DEFAULT_TEMPLATES`, a lista da
+ * rota ficou nos seis originais, e como a tela manda todos os templates num
+ * PATCH so, o zod passou a recusar o array inteiro. A tela de Notificacoes parou
+ * de salvar qualquer coisa -- inclusive os seis que continuavam validos.
+ */
+export const TEMPLATE_KEYS = Object.keys(DEFAULT_TEMPLATES) as [TemplateKey, ...TemplateKey[]];
+
+/** Variaveis escritas num texto, sem repetir. */
+export const variaveisDoTexto = (body: string): string[] => [
+  ...new Set(Array.from(body.matchAll(/\{(\w+)\}/g), (m) => m[1])),
+];
 
 export function render(body: string, vars: Record<string, string | number>): string {
   return body.replace(/\{(\w+)\}/g, (match, key) =>
@@ -270,6 +304,39 @@ export async function notifyOwner(
     // A hora do atendimento entra na chave para que a remarcacao gere um aviso
     // novo em vez de esbarrar no aviso da hora antiga.
     dedupeKey: `${appointmentId}:${key}:${startsAt}`,
+  });
+}
+
+/**
+ * Empurra a auto-resposta desta loja para a sessão dela no bot.
+ *
+ * Quem responde é o bot, não a aplicação: ele já guarda um texto por sessão e o
+ * dispara para quem manda mensagem — pulando grupo, status, mensagem própria e
+ * sincronização de histórico, com um intervalo por contato para não repetir a
+ * boas-vindas a cada frase. O que faltava era dizer a ele **qual** texto, e o
+ * texto é daqui, porque só este lado sabe o nome da loja e o link dela.
+ *
+ * Chamar isto é barato e idempotente: grava um arquivo por sessão no bot. Por
+ * isso vale chamar sempre que o texto ou a sessão puderem ter mudado (ao parear
+ * e ao salvar as mensagens) em vez de tentar adivinhar quando mudou.
+ *
+ * Template desligado manda `enabled: false` em vez de simplesmente não chamar —
+ * desligar na tela precisa desligar no bot, senão o texto antigo continua
+ * saindo e ninguém entende por quê.
+ */
+export async function syncAutoReply(tenantId: string): Promise<boolean> {
+  const { tenant } = await getTenantContext(tenantId);
+  const sessionId = await sessionIdFor(tenantId);
+  const body = await templateFor(tenantId, 'welcome');
+
+  return setAutoReply(sessionId, {
+    enabled: Boolean(body),
+    message: body
+      ? render(body, {
+          empresa: tenant.name,
+          link_agendamento: `${env.appUrl}/agendar/${tenant.slug}`,
+        })
+      : '',
   });
 }
 

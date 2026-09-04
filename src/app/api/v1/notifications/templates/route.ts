@@ -1,8 +1,15 @@
 import { z } from 'zod';
-import { clientIp, ok, parseBody, route } from '@/lib/http';
+import { ApiError, clientIp, ok, parseBody, route } from '@/lib/http';
 import { audit, requireRole } from '@/lib/auth';
 import { query } from '@/lib/db';
-import { DEFAULT_TEMPLATES, type TemplateKey } from '@/server/services/notification.service';
+import {
+  DEFAULT_TEMPLATES,
+  TEMPLATE_KEYS,
+  WELCOME_VARS,
+  syncAutoReply,
+  variaveisDoTexto,
+  type TemplateKey,
+} from '@/server/services/notification.service';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +46,7 @@ const schema = z.object({
   templates: z
     .array(
       z.object({
-        key: z.enum(['confirmation', 'reminder_24h', 'reminder_1h', 'return', 'cancelled', 'payment_link']),
+        key: z.enum(TEMPLATE_KEYS),
         body: z.string().min(5).max(2000),
         enabled: z.boolean().optional(),
       })
@@ -47,9 +54,28 @@ const schema = z.object({
     .min(1),
 });
 
+
 export const PATCH = route(async (req: Request) => {
   const session = await requireRole(req, 'ADMIN');
   const body = await parseBody(req, schema);
+
+  // A auto-resposta sai antes de existir agendamento: o bot so tem a loja em
+  // maos quando dispara. Uma variavel de agendamento escrita ali chegaria ao
+  // cliente com as chaves na tela -- e quem veria seria ele, nao o dono, entao
+  // e' aqui que tem que parar.
+  const welcome = body.templates.find((t) => t.key === 'welcome');
+  if (welcome) {
+    const invalidas = variaveisDoTexto(welcome.body).filter(
+      (v) => !WELCOME_VARS.includes(v as (typeof WELCOME_VARS)[number])
+    );
+    if (invalidas.length) {
+      throw ApiError.badRequest(
+        `A mensagem de boas-vindas so aceita ${WELCOME_VARS.map((v) => `{${v}}`).join(' e ')}. ` +
+          `Tire ${invalidas.map((v) => `{${v}}`).join(', ')}: quem recebe e' quem mandou mensagem, ` +
+          'e ali ainda nao existe agendamento nenhum.'
+      );
+    }
+  }
 
   for (const template of body.templates) {
     await query(
@@ -59,6 +85,18 @@ export const PATCH = route(async (req: Request) => {
        DO UPDATE SET body = EXCLUDED.body, enabled = EXCLUDED.enabled, updated_at = now()`,
       [session.tenantId, template.key as TemplateKey, template.body, template.enabled ?? null]
     );
+  }
+
+  // O texto da boas-vindas mora no bot, nao aqui: sem empurrar, salvar na tela
+  // nao muda o que o cliente recebe. Falhar aqui nao pode derrubar o
+  // salvamento -- o texto ja esta gravado, e a proxima sincronizacao (salvar de
+  // novo, ou parear) alcanca o bot.
+  let autoRespostaSincronizada: boolean | null = null;
+  if (welcome) {
+    autoRespostaSincronizada = await syncAutoReply(session.tenantId).catch((err) => {
+      console.error('[whatsapp] falha ao sincronizar a auto-resposta:', err);
+      return false;
+    });
   }
 
   await audit({
@@ -71,5 +109,5 @@ export const PATCH = route(async (req: Request) => {
     ip: clientIp(req),
   });
 
-  return ok({ updated: body.templates.length });
+  return ok({ updated: body.templates.length, autoRespostaSincronizada });
 });
