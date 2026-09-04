@@ -1,0 +1,36 @@
+# Bloco para acrescentar ao Caddyfile que ja roda na VPS -- nao substitua o
+# arquivo, o Safra mora nele tambem.
+#
+# O Caddy cuida do TLS sozinho (Let's Encrypt). Para isso, o A/AAAA de
+# dlzbarbearia.com.br precisa estar apontado para a VPS ANTES do reload, senao
+# o desafio falha e o certificado nao sai.
+
+dlzbarbearia.com.br {
+	# 3010 e' a porta que o compose publica em 127.0.0.1. Se o seu Caddy roda
+	# em container, isto aqui NAO alcanca o host: use a rede externa
+	# compartilhada e troque por `reverse_proxy app:3000`.
+	reverse_proxy 127.0.0.1:3010
+
+	encode zstd gzip
+
+	# O app le o IP do cliente pelo cabecalho para o rate limit (login, signup,
+	# checkout). Sem isto, todo mundo chega como o IP do proxy e o teto de 5
+	# tentativas de login vira um teto compartilhado pelo mundo inteiro -- o
+	# primeiro a errar a senha tranca os outros.
+	header_up X-Forwarded-For {remote_host}
+	header_up X-Real-IP {remote_host}
+
+	# HSTS. Um ano, e so depois de confirmar que o https esta de pe: enquanto
+	# este cabecalho estiver valendo, o navegador se recusa a falar http com
+	# este dominio, e voltar atras leva o tempo do max-age.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	log {
+		output file /var/log/caddy/barbearia.log
+		format json
+	}
+}

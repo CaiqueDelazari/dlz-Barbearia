@@ -1,0 +1,61 @@
+# Producao na VPS. Nao constroi nada aqui: a imagem vem pronta do GitHub
+# Actions (`build-image.yml`). Com 2 vCPUs, compilar Next.js nesta maquina a
+# satura e deixa o Safra, que roda ao lado, arrastado.
+#
+#   docker compose pull && docker compose up -d
+#
+# O `.env` fica SO na VPS, nunca no repositorio. Veja `.env.producao.exemplo`
+# para a lista de variaveis.
+
+services:
+  app:
+    image: ghcr.io/caiquedelazari/dlz-barbearia:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: America/Sao_Paulo
+    # Loopback de proposito: quem fala com a internet e o Caddy, que ja esta na
+    # maquina. Publicar 0.0.0.0 aqui exporia a aplicacao pela porta crua,
+    # passando por cima do TLS e de qualquer regra do proxy.
+    #
+    # Se o seu Caddy roda em container, troque isto por uma rede externa
+    # compartilhada (`networks: [caddy]` nos dois lados) e aponte o proxy para
+    # `app:3000` -- de dentro do Docker o 127.0.0.1 do host nao e alcancavel.
+    ports:
+      - "127.0.0.1:3010:3000"
+    healthcheck:
+      # Nao ha rota de health no app; /login e estatica e nao toca no banco,
+      # que e o que se quer de um healthcheck -- ele nao pode derrubar o
+      # container quando o problema esta no Supabase.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # O worker que a Vercel faria pelo `vercel.json`. Fora da Vercel aquele
+  # arquivo nao e lido por ninguem, e sem alguem batendo nesta rota a fila de
+  # notificacao apenas enche: confirmacao, lembrete de 24h e de 1h e aviso do
+  # dono param de sair. O sintoma e o pior possivel -- o painel mostra tudo
+  # certo e o cliente nao recebe nada.
+  worker:
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      app:
+        condition: service_healthy
+    # `-f` para que erro HTTP vire falha visivel no log em vez de passar batido.
+    # O `|| true` evita que uma rodada ruim derrube o container: a proxima sai
+    # em 5 minutos, e a fila e idempotente (dedupe_key), entao nada duplica.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        while true; do
+          curl -fsS -m 120 -X POST \
+            -H "Authorization: Bearer $${CRON_SECRET}" \
+            http://app:3000/api/v1/jobs/run \
+            || echo "[worker] falhou em $$(date -Iseconds)"
+          sleep 300
+        done
