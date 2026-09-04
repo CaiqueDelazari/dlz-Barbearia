@@ -39,9 +39,32 @@ describe('gateway de pagamento e por loja, nao por deploy', () => {
   });
 
   it('webhook so aceita provider que este deploy conhece', () => {
-    assert.equal(getProviderByName('manual')?.name, 'manual');
     assert.equal(getProviderByName('mercadopago')?.name, 'mercadopago');
     assert.equal(getProviderByName('pagarme'), null);
     assert.equal(getProviderByName('qualquer-coisa'), null);
+  });
+
+  /**
+   * O `manual` nao e' gateway: e' o simulador. O `parseWebhook` dele nao tem
+   * assinatura para conferir -- acredita no corpo do POST -- entao aceita-lo em
+   * producao e publicar um "marque este pagamento como pago" aberto, com o id
+   * que o proprio cliente recebe ao abrir o checkout.
+   *
+   * Ate a migration 007 isto estava fechado por acidente: o webhook usava o
+   * provider global e recusava /webhook/manual quando o deploy era mercadopago.
+   * Ao passar o gateway para a loja, a checagem foi junto -- e a versao anterior
+   * DESTE teste afirmava o comportamento errado como se fosse o esperado.
+   */
+  it('o simulador manual nao entra por webhook em producao', () => {
+    const ambiente = process.env as Record<string, string | undefined>;
+    const antes = ambiente.NODE_ENV;
+    try {
+      ambiente.NODE_ENV = 'development';
+      assert.equal(getProviderByName('manual')?.name, 'manual', 'em dev o simulador existe');
+      ambiente.NODE_ENV = 'production';
+      assert.equal(getProviderByName('manual'), null, 'em producao, nao');
+    } finally {
+      ambiente.NODE_ENV = antes;
+    }
   });
 });

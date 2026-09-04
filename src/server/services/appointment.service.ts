@@ -267,12 +267,16 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
         console.error('[notificacao] falha ao agendar:', err)
       );
     }
-    // A loja recebe um aviso so, do primeiro item: um corte + barba viram dois
-    // appointments no mesmo horario, e tres mensagens seguidas para o mesmo
-    // agendamento seriam ruido. O texto ja lista os servicos.
-    const primeiro = result.appointments[0];
-    if (primeiro) {
-      await notifyOwner(input.tenantId, primeiro.id, 'owner_new').catch((err) =>
+    // Um aviso por appointment, nao um pelo grupo.
+    //
+    // Corte + barba no MESMO horario ja e' um appointment so, com dois
+    // `appointment_services` -- o texto do aviso lista os dois e nao ha
+    // repeticao. O grupo so passa de um item quando o cliente escolhe horarios
+    // separados -- e ai avisar so o primeiro escondia o resto: quem marcasse
+    // corte as 14h e barba as 16h aparecia para a loja como se tivesse marcado
+    // so as 14h, e o segundo horario ficava ocupado sem ninguem saber.
+    for (const appt of result.appointments) {
+      await notifyOwner(input.tenantId, appt.id, 'owner_new').catch((err) =>
         console.error('[notificacao] falha ao avisar a loja:', err)
       );
     }

@@ -9,8 +9,12 @@ import { api, shortMoney } from '@/lib/api-client';
 /**
  * Checkout simulado do provider "manual".
  * Existe para dar para rodar o fluxo inteiro - reserva, pagamento, webhook,
- * confirmacao - antes de plugar o gateway real. Com PAYMENT_PROVIDER=mercadopago
- * o webhook aqui e recusado, entao a pagina fica inofensiva.
+ * confirmacao - antes de plugar o gateway real.
+ *
+ * So funciona fora de producao: o webhook `manual` nao confere assinatura
+ * nenhuma, entao `getProviderByName` o recusa quando NODE_ENV e' 'production'.
+ * Em producao esta pagina carrega e o botao responde erro, que e o certo -- e
+ * vale para preview tambem, onde NODE_ENV ja e 'production'.
  */
 export default function SimulatedPaymentPage() {
   const { id } = useParams<{ id: string }>();

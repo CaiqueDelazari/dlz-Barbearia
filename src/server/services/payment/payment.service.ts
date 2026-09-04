@@ -4,7 +4,7 @@ import { env } from '@/lib/env';
 import { ApiError } from '@/lib/http';
 import { audit } from '@/lib/auth';
 import { getTenantContext } from '../../repositories/tenant.repo';
-import { scheduleAppointmentNotifications } from '../notification.service';
+import { notifyOwner, scheduleAppointmentNotifications } from '../notification.service';
 import type { PaymentProvider } from './provider';
 import { ManualProvider } from './providers/manual.provider';
 import { MercadoPagoProvider } from './providers/mercadopago.provider';
@@ -33,12 +33,29 @@ export function getProviderForSettings(settings: { payment_provider: string }): 
   return new ManualProvider();
 }
 
-/** Provider pelo nome, para o webhook -- que chega pelo gateway, nao pela loja. */
+/**
+ * Provider pelo nome, para o webhook -- que chega pelo gateway, nao pela loja.
+ *
+ * `manual` NAO e' um gateway: e' o simulador que existe para rodar o fluxo
+ * inteiro antes de plugar o de verdade. O `parseWebhook` dele nao confere
+ * assinatura nenhuma -- acredita no corpo do POST e pronto. Aceita-lo em
+ * producao e' publicar um endpoint que marca qualquer pagamento como pago, e o
+ * id nem precisa ser adivinhado: quem abre o checkout recebe o proprio.
+ *
+ * Antes da migration 007 isto estava fechado por acidente -- o webhook usava o
+ * provider global, e um deploy com PAYMENT_PROVIDER=mercadopago recusava
+ * /webhook/manual porque o nome nao batia. Ao passar o gateway para a loja, a
+ * checagem sumiu junto. Agora e' explicita, e nao depende de qual gateway o
+ * deploy tem: fora de desenvolvimento, `manual` nao entra por webhook.
+ *
+ * Pagamento presencial nao passa por aqui -- vai por `registerManualPayment`,
+ * que exige sessao. Fechar isto nao tira nada de producao.
+ */
 export function getProviderByName(name: string): PaymentProvider | null {
   if (name === 'mercadopago' && env.payment.provider === 'mercadopago') {
     return new MercadoPagoProvider();
   }
-  if (name === 'manual') return new ManualProvider();
+  if (name === 'manual' && process.env.NODE_ENV !== 'production') return new ManualProvider();
   return null;
 }
 
@@ -280,6 +297,11 @@ export async function settlePayment(paymentId: string, amount?: number): Promise
     return applyToGroup(tx, row.tenant_id, row.booking_group_id, amount ?? row.amount);
   });
 
+  // Com cobranca online o agendamento nasce `pending` e so vira `confirmed`
+  // aqui: e' este o momento em que a loja precisa saber que entrou horario novo.
+  // Enquanto o aviso do dono morava so no caminho sem pagamento, ligar o gateway
+  // deixava o Riady sem saber de quem marcou pela internet -- justamente quem
+  // marca fora do balcao.
   for (const appointmentId of confirmedAppointments) {
     const tenant = await queryOne<{ tenant_id: string }>(
       'SELECT tenant_id FROM appointments WHERE id = $1',
@@ -288,6 +310,9 @@ export async function settlePayment(paymentId: string, amount?: number): Promise
     if (tenant) {
       await scheduleAppointmentNotifications(tenant.tenant_id, appointmentId).catch((err) =>
         console.error('[notificacao] falha pos-pagamento:', err)
+      );
+      await notifyOwner(tenant.tenant_id, appointmentId, 'owner_new').catch((err) =>
+        console.error('[notificacao] falha ao avisar a loja pos-pagamento:', err)
       );
     }
   }
@@ -477,10 +502,12 @@ export async function handleWebhook(
   if (!inserted) return { processed: false, reason: 'evento duplicado' };
 
   try {
+    // `provider` entra na busca porque o id sozinho nao diz de quem o pagamento
+    // e': sem isso, um webhook de um gateway quita a cobranca criada por outro.
     const payment = event.paymentId
       ? await queryOne<{ id: string; amount: number }>(
-          `SELECT id, amount::float8 AS amount FROM payments WHERE id = $1`,
-          [event.paymentId]
+          `SELECT id, amount::float8 AS amount FROM payments WHERE id = $1 AND provider = $2`,
+          [event.paymentId, providerName]
         )
       : await queryOne<{ id: string; amount: number }>(
           `SELECT id, amount::float8 AS amount FROM payments

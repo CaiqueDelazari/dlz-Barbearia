@@ -6,6 +6,11 @@ import type { CreateChargeInput, CreateChargeResult, PaymentProvider, WebhookRes
  * Nao movimenta dinheiro: devolve um link interno de simulacao para dar para
  * rodar o fluxo completo (reserva -> pagamento -> webhook -> confirmacao)
  * antes de plugar o gateway real.
+ *
+ * `parseWebhook` aqui acredita no corpo do POST -- nao ha assinatura para
+ * conferir, porque nao existe gateway do outro lado. E por isso que
+ * `getProviderByName` so entrega este provider fora de producao: em producao
+ * ele seria um endpoint publico de "marque este pagamento como pago".
  */
 export class ManualProvider implements PaymentProvider {
   readonly name = 'manual';

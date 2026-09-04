@@ -1,6 +1,11 @@
 /**
  * Dinheiro e confirmação: reserva temporária, sinal, webhook idempotente,
  * pagamento presencial e o link que o cliente recebe.
+ *
+ * Roda contra `next dev`. O webhook `manual` que esta suíte usa é o simulador,
+ * e ele só é aceito fora de produção — contra um servidor iniciado com
+ * NODE_ENV=production estes testes falham por 400, e é esse o comportamento
+ * certo (ver `getProviderByName`).
  */
 import assert from 'node:assert/strict';
 import test, { after, before, describe } from 'node:test';
