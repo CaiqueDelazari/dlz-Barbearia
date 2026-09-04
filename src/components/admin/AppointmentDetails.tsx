@@ -62,6 +62,8 @@ export function AppointmentDetails({
   const [busy, setBusy] = useState(false);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<'cash' | 'pix' | 'card'>('cash');
+  // Passo de cobrança que aparece ao concluir com valor em aberto.
+  const [cobrando, setCobrando] = useState(false);
   const [sales, setSales] = useState<Sale[]>([]);
   const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
   const [picking, setPicking] = useState(false);
@@ -133,6 +135,20 @@ export function AppointmentDetails({
   }
 
   async function changeStatus(status: string) {
+    // Cancelar apaga o horário da agenda e derruba os lembretes do cliente, e o
+    // botão fica encostado no "Concluir" numa grade de três colunas — no
+    // celular, a mão erra. O cancelamento do lado do cliente já perguntava; era
+    // o lado de cá, que cancela o horário dos outros, que não perguntava nada.
+    if (
+      status === 'cancelled' &&
+      !confirm(
+        `Cancelar o horário de ${current.client_name}?\n\n` +
+          'O horário fica livre e o cliente para de receber os lembretes.'
+      )
+    ) {
+      return;
+    }
+
     setBusy(true);
     try {
       await api.patch(`/appointments/${appointment.id}`, { status });
@@ -141,6 +157,49 @@ export function AppointmentDetails({
       onClose();
     } catch (err) {
       toast.error(err instanceof ApiClientError ? err.message : 'Falha ao atualizar');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Concluir é o último toque do atendimento, e é onde o dinheiro se perde.
+   *
+   * O corte acabou, o próximo já está sentado, e registrar o pagamento é outro
+   * bloco mais acima nesta mesma tela. Concluir direto fechava o atendimento com
+   * R$ 0 recebido e o caixa do dia fechava errado sem nada apontar — e como
+   * quase toda loja aqui é pagamento no balcão, esse era o caminho normal, não
+   * o caso de canto.
+   *
+   * Com valor em aberto, o botão passa a perguntar. Continua dando para concluir
+   * sem receber (fiado acontece), só que dizendo isso em voz alta.
+   */
+  function concluir() {
+    if (restante > 0) return setCobrando(true);
+    return changeStatus('completed');
+  }
+
+  /**
+   * Recebe o que falta e conclui, na mesma ação.
+   *
+   * Se o pagamento entrar e o status falhar, o dinheiro fica registrado e o
+   * atendimento segue aberto — tocar em Concluir de novo acha `restante = 0` e
+   * fecha direto. O contrário (concluir e perder o pagamento) é que não pode
+   * acontecer, por isso o pagamento vem primeiro.
+   */
+  async function receberEConcluir(forma: 'cash' | 'pix' | 'card') {
+    setBusy(true);
+    try {
+      await api.post(`/appointments/${appointment.id}/payments`, {
+        amount: restante,
+        method: forma,
+      });
+      await api.patch(`/appointments/${appointment.id}`, { status: 'completed' });
+      toast.success(`${money(restante)} recebido e atendimento concluído`);
+      onChanged();
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : 'Falha ao concluir');
     } finally {
       setBusy(false);
     }
@@ -423,9 +482,9 @@ export function AppointmentDetails({
           )}
         </div>
 
-        {!finished && (
+        {!finished && !cobrando && (
           <footer className="safe-bottom grid grid-cols-3 gap-2 border-t border-ink-800 px-5 pt-4">
-            <button type="button" disabled={busy} onClick={() => changeStatus('completed')} className="btn-primary">
+            <button type="button" disabled={busy} onClick={concluir} className="btn-primary">
               {busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Concluir
             </button>
             <button type="button" disabled={busy} onClick={() => changeStatus('no_show')} className="btn-ghost">
@@ -434,6 +493,40 @@ export function AppointmentDetails({
             <button type="button" disabled={busy} onClick={() => changeStatus('cancelled')} className="btn-danger">
               <Ban size={15} /> Cancelar
             </button>
+          </footer>
+        )}
+
+        {!finished && cobrando && (
+          <footer className="safe-bottom border-t border-ink-800 px-5 pt-4">
+            <p className="text-sm text-ink-100">
+              Recebeu <span className="tnum font-semibold">{money(restante)}</span> de{' '}
+              {current.client_name.split(' ')[0]}?
+            </p>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <button type="button" disabled={busy} onClick={() => receberEConcluir('cash')} className="btn-primary">
+                Dinheiro
+              </button>
+              <button type="button" disabled={busy} onClick={() => receberEConcluir('card')} className="btn-primary">
+                Cartão
+              </button>
+              <button type="button" disabled={busy} onClick={() => receberEConcluir('pix')} className="btn-primary">
+                Pix
+              </button>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button type="button" disabled={busy} onClick={() => setCobrando(false)} className="btn-ghost">
+                <X size={15} /> Voltar
+              </button>
+              {/* Fiado acontece. O que nao pode e' acontecer sem ninguem notar. */}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => changeStatus('completed')}
+                className="btn-ghost"
+              >
+                Concluir sem receber
+              </button>
+            </div>
           </footer>
         )}
       </div>
