@@ -43,6 +43,14 @@ const MOTIVOS: { label: string; kind: 'block' | 'holiday' | 'vacation' | 'dayoff
 
 const trim = (t: string) => t.slice(0, 5);
 
+const paraMinutos = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+};
+
+const paraHora = (min: number) =>
+  `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+
 function proximoQuarto(): string {
   const now = new Date();
   now.setMinutes(Math.ceil(now.getMinutes() / 15) * 15, 0, 0);
@@ -71,12 +79,23 @@ export function CloseAgendaDialog({ date, hours, today, onClose, onDone }: Props
   const [conflitos, setConflitos] = useState<Conflito[] | null>(null);
 
   const [professionals, setProfessionals] = useState<Professional[]>([]);
+  // Tamanho do slot da agenda. Vem das Configuracoes porque a grade daqui
+  // precisa ser a MESMA que o cliente ve no agendamento -- oferecer 14:00 aqui
+  // quando la os horarios caem de 40 em 40 faria fechar um vao que nao existe.
+  const [intervalo, setIntervalo] = useState(30);
 
   useEffect(() => {
     api
       .get<{ professionals: Professional[] }>('/professionals')
       .then((r) => setProfessionals(r.professionals.filter((p) => p.active)))
       .catch(() => setProfessionals([]));
+  }, []);
+
+  useEffect(() => {
+    api
+      .get<{ settings: { slot_interval_minutes: number } }>('/settings')
+      .then((r) => setIntervalo(Number(r.settings.slot_interval_minutes) || 30))
+      .catch(() => setIntervalo(30));
   }, []);
 
   // expediente do dia escolhido: base para os atalhos de manhã/tarde
@@ -114,6 +133,37 @@ export function CloseAgendaDialog({ date, hours, today, onClose, onDone }: Props
 
   const diaInteiro = periodo === 'dia';
   const varios = Boolean(dataFim && dataFim > dataInicio);
+
+  /**
+   * A grade de horarios do dia, igual a que o cliente ve no agendamento.
+   *
+   * Existe porque o caso mais comum de "fechar agenda" nao e o dia inteiro nem
+   * um turno: e um horario so -- o dentista as 15h. Sem a grade, fechar as 15h
+   * exigia saber de cor onde o slot comeca e termina e digitar as duas pontas
+   * num campo que ja vinha preenchido com o dia inteiro. Quem erra por 10
+   * minutos deixa um vao que o cliente consegue reservar.
+   *
+   * O passo cai para 30 se a configuracao vier zerada ou negativa: sem isso o
+   * `for` abaixo nao termina.
+   */
+  const passo = intervalo > 0 ? intervalo : 30;
+  const slots = useMemo(() => {
+    if (!expediente) return [];
+    const fecha = paraMinutos(expediente.fecha);
+    const lista: string[] = [];
+    // `t + passo <= fecha` e nao `t < fecha`: o ultimo slot precisa caber
+    // inteiro dentro do expediente, senao ofereceriamos um horario que
+    // termina depois de a loja fechar.
+    for (let t = paraMinutos(expediente.abre); t + passo <= fecha; t += passo) {
+      lista.push(paraHora(t));
+    }
+    return lista;
+  }, [expediente, passo]);
+
+  // So marca o chip quando a faixa e exatamente um slot: se o dono ajustou o
+  // horario na mao, nenhum fica aceso -- o que esta valendo sao os campos.
+  const slotAtivo =
+    periodo === 'custom' && paraMinutos(fim) - paraMinutos(inicio) === passo ? inicio : null;
 
   const resumo = (() => {
     const quem =
@@ -289,6 +339,35 @@ export function CloseAgendaDialog({ date, hours, today, onClose, onDone }: Props
               Escolher horário
             </Chip>
           </div>
+
+          {periodo === 'custom' && (
+            <div className="mt-3">
+              {slots.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {slots.map((slot) => (
+                    <Chip
+                      key={slot}
+                      ativo={slotAtivo === slot}
+                      onClick={() => {
+                        setInicio(slot);
+                        setFim(paraHora(paraMinutos(slot) + passo));
+                      }}
+                    >
+                      <span className="tnum">{slot}</span>
+                    </Chip>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-ink-500">
+                  Sem expediente cadastrado neste dia — use os campos abaixo.
+                </p>
+              )}
+              <p className="mt-2 text-xs text-ink-500">
+                Um toque fecha só aquele horário. Para uma faixa maior, ajuste
+                abaixo.
+              </p>
+            </div>
+          )}
 
           {!diaInteiro && (
             <div className="mt-3 flex items-center gap-2">
