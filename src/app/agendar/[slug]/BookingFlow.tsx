@@ -128,7 +128,25 @@ export function BookingFlow({ tenant, services, professionals, products, config 
   const today = useMemo(() => todayInTz(tenant.timezone), [tenant.timezone]);
   const maxDate = useMemo(() => addDays(today, config.maxAdvanceDays), [today, config.maxAdvanceDays]);
 
-  const [step, setStep] = useState<Step>('services');
+  /**
+   * Quem atende e a primeira pergunta, antes ate dos servicos.
+   *
+   * Foi decidido assim depois de ver a tela pronta: numa barbearia a pessoa
+   * volta no barbeiro, nao no corte -- ela reconhece o rosto, e so depois pensa
+   * em o que vai fazer. Com um profissional so nao ha o que escolher, mas a
+   * tela continua existindo como apresentacao: e onde a foto aparece grande, e
+   * no dia em que o segundo barbeiro entrar no cadastro ela vira escolha de
+   * verdade sem mudar uma linha.
+   *
+   * A excecao e a loja com equipe que desligou a escolha em Configuracoes: ali
+   * mostrar rosto para depois ignorar a preferencia seria promessa falsa.
+   */
+  const soloProfessional = professionals.length === 1 ? professionals[0] : null;
+  const podeEscolherProfissional = config.allowProfessionalChoice && professionals.length > 1;
+  const mostrarPassoProfissional = Boolean(soloProfessional) || podeEscolherProfissional;
+  const primeiroPasso: Step = mostrarPassoProfissional ? 'professional' : 'services';
+
+  const [step, setStep] = useState<Step>(primeiroPasso);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [professionalId, setProfessionalId] = useState<string | null>(null);
   const [tab, setTab] = useState<string>('__all__');
@@ -227,21 +245,7 @@ export function BookingFlow({ tenant, services, professionals, products, config 
   const totalAmount = selected.reduce((sum, s) => sum + Number(s.price), 0);
   const servicesParam = selectedIds.join(',');
 
-  // --------------------------------------------------------- profissionais
-  /**
-   * Quem vai atender aparece antes de o cliente escolher a hora.
-   *
-   * Com dois ou mais na equipe existe escolha de verdade, e ela ganha um passo
-   * proprio -- com a foto grande, porque e por ela que o cliente reconhece o
-   * barbeiro de quem gostou.
-   *
-   * Com um so nao ha o que escolher, e um passo inteiro para tocar "continuar"
-   * seria pedagio. Entao a foto vai para o topo do passo de horario: o cliente
-   * ve com quem vai ser atendido no mesmo lugar, sem toque a mais. Quando o
-   * segundo barbeiro entrar no cadastro, o passo de escolha aparece sozinho.
-   */
-  const soloProfessional = professionals.length === 1 ? professionals[0] : null;
-  const podeEscolherProfissional = config.allowProfessionalChoice && professionals.length > 1;
+  // Quem o cliente escolheu, para reaparecer no topo do passo de horario.
   const professionalEmFoco = professionalId
     ? professionals.find((p) => p.id === professionalId) ?? null
     : soloProfessional;
@@ -302,8 +306,13 @@ export function BookingFlow({ tenant, services, professionals, products, config 
     setSlot(null);
   }
 
-  function goToDateTime() {
-    setStep(podeEscolherProfissional ? 'professional' : 'datetime');
+  function escolherProfissional(id: string | null) {
+    setProfessionalId(id);
+    // trocar de barbeiro muda os horarios livres: o dia carregado nao vale mais
+    setDate(null);
+    setDay(null);
+    setSlot(null);
+    setStep('services');
   }
 
   const splitComplete = selected.every((s) => splitSlots[s.id]);
@@ -401,7 +410,7 @@ export function BookingFlow({ tenant, services, professionals, products, config 
   // ------------------------------------------------------------------ views
   const stepTitles: Record<Step, string> = {
     services: 'Escolha os serviços',
-    professional: 'Com quem você quer ser atendido',
+    professional: soloProfessional ? 'Quem vai te atender' : 'Com quem você quer ser atendido',
     datetime: 'Escolha o dia e o horário',
     contact: 'Seus dados',
     payment: 'Pagamento',
@@ -409,8 +418,8 @@ export function BookingFlow({ tenant, services, professionals, products, config 
   };
 
   function goBack() {
-    if (step === 'professional') setStep('services');
-    else if (step === 'datetime') setStep(podeEscolherProfissional ? 'professional' : 'services');
+    if (step === 'services') setStep('professional');
+    else if (step === 'datetime') setStep('services');
     else if (step === 'contact') setStep('datetime');
     else if (step === 'payment') setStep('contact');
   }
@@ -425,7 +434,7 @@ export function BookingFlow({ tenant, services, professionals, products, config 
           sobre um fundo quase preto ninguem ve diferenca entre os dois. */}
       <header className="sticky top-0 z-20 bg-ink-950">
         <div className="flex items-center gap-3 px-5 pb-3 pt-5">
-          {step !== 'services' && step !== 'done' ? (
+          {step !== primeiroPasso && step !== 'done' ? (
             <button
               type="button"
               onClick={goBack}
@@ -586,44 +595,52 @@ export function BookingFlow({ tenant, services, professionals, products, config 
         )}
 
         {/* --------------------------------------------------- profissional */}
-        {step === 'professional' && (
+        {step === 'professional' && soloProfessional && (
+          <Apresentacao professional={soloProfessional} />
+        )}
+
+        {step === 'professional' && !soloProfessional && (
           <section className="animate-fade-up">
             {/* A foto vem antes do nome e ocupa 72px: o cliente volta pelo rosto
                 de quem cortou da ultima vez, nao pela grafia do nome. */}
             <ul className="divide-y divide-ink-800">
-              {professionals.map((professional) => (
-                <li key={professional.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfessionalId(professional.id);
-                      setStep('datetime');
-                    }}
-                    className="flex w-full items-center gap-4 py-4 text-left transition-colors active:bg-ink-900"
-                  >
-                    <Retrato professional={professional} size={72} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[16px] text-ink-100">{professional.name}</span>
-                      {professional.bio && (
-                        <span className="eyebrow mt-1 block truncate normal-case tracking-wider">
-                          {professional.bio}
+              {professionals.map((professional) => {
+                const escolhido = professionalId === professional.id;
+                return (
+                  <li key={professional.id}>
+                    <button
+                      type="button"
+                      onClick={() => escolherProfissional(professional.id)}
+                      className="flex w-full items-center gap-4 py-4 text-left transition-colors active:bg-ink-900"
+                    >
+                      <Retrato professional={professional} size={72} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[16px] text-ink-100">{professional.name}</span>
+                        {professional.bio && (
+                          <span className="eyebrow mt-1 block truncate normal-case tracking-wider">
+                            {professional.bio}
+                          </span>
+                        )}
+                      </span>
+                      {/* Quem voltou para trocar precisa ver onde estava. */}
+                      {escolhido ? (
+                        <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-brand-500">
+                          <Check size={12} strokeWidth={2.5} className="text-ink-950" />
                         </span>
+                      ) : (
+                        <ChevronRight size={16} strokeWidth={1.5} className="shrink-0 text-ink-500" />
                       )}
-                    </span>
-                    <ChevronRight size={16} strokeWidth={1.5} className="shrink-0 text-ink-500" />
-                  </button>
-                </li>
-              ))}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
 
             {/* Fica por ultimo e mais discreto: quem nao tem preferencia acha
                 assim mesmo, e quem tem nao passa reto pelo rosto que procura. */}
             <button
               type="button"
-              onClick={() => {
-                setProfessionalId(null);
-                setStep('datetime');
-              }}
+              onClick={() => escolherProfissional(null)}
               className="rule mt-2 flex w-full items-center justify-between gap-4 py-4 text-left"
             >
               <span>
@@ -944,7 +961,8 @@ export function BookingFlow({ tenant, services, professionals, products, config 
       </main>
 
       {/* ------------------------------------------------- barra inferior */}
-      {['services', 'datetime', 'contact'].includes(step) && (
+      {(['services', 'datetime', 'contact'].includes(step) ||
+        (step === 'professional' && soloProfessional)) && (
         <footer className="dock-bottom safe-bottom sticky z-20 border-t border-ink-800 bg-ink-950 px-5 pt-4">
           {selected.length > 0 && (
             <div className="mb-3 flex items-baseline justify-between">
@@ -955,11 +973,21 @@ export function BookingFlow({ tenant, services, professionals, products, config 
             </div>
           )}
 
+          {step === 'professional' && soloProfessional && (
+            <button
+              type="button"
+              onClick={() => escolherProfissional(soloProfessional.id)}
+              className="btn-primary w-full py-3.5 text-[15px]"
+            >
+              Continuar com {soloProfessional.name.split(' ')[0]}
+            </button>
+          )}
+
           {step === 'services' && (
             <button
               type="button"
               disabled={!selectedIds.length}
-              onClick={goToDateTime}
+              onClick={() => setStep('datetime')}
               className="btn-primary w-full py-3.5 text-[15px]"
             >
               Continuar
@@ -1017,6 +1045,29 @@ function Retrato({ professional, size }: { professional: Professional; size: num
         initials(professional.name)
       )}
     </span>
+  );
+}
+
+/**
+ * A tela de um profissional só: apresentação, não escolha.
+ *
+ * A foto grande é o ponto — é o que o cliente reconhece e o que faz a página
+ * parecer da barbearia dele, e não de um sistema. Nada de "Barbeiro" escrito
+ * embaixo: aqui também agendam salão e estúdio, e o rótulo sairia errado na
+ * casa dos outros. Sem bio cadastrada, o nome basta; o título do passo, logo
+ * acima, já diz o que essa pessoa é.
+ */
+function Apresentacao({ professional }: { professional: Professional }) {
+  return (
+    <section className="animate-fade-up flex flex-col items-center pt-8 text-center">
+      <Retrato professional={professional} size={168} />
+      <h2 className="display mt-7 text-[26px] leading-none tracking-wide text-ink-100">
+        {professional.name}
+      </h2>
+      {professional.bio && (
+        <p className="mt-3 max-w-[22rem] text-sm leading-relaxed text-ink-400">{professional.bio}</p>
+      )}
+    </section>
   );
 }
 
