@@ -39,7 +39,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center px-5">
+    <main className="mx-auto flex screen-min w-full max-w-sm flex-col justify-center px-5">
       <div className="mb-8 text-center">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-ink-850">
           <Scissors size={20} className="text-brand-500" />

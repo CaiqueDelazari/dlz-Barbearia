@@ -60,9 +60,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="min-h-dvh lg:flex">
+    <div className="screen-min lg:flex">
       {/* ------------------------------------------------ topo (celular) */}
-      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950/95 px-4 py-3 backdrop-blur lg:hidden">
+      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950 px-4 py-3 lg:hidden">
         <button type="button" onClick={() => setOpen((v) => !v)} className="rounded-lg p-1.5 text-ink-300 hover:bg-ink-800">
           {open ? <X size={20} /> : <Menu size={20} />}
         </button>

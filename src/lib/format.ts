@@ -45,3 +45,22 @@ export function perfilInstagram(valor: string | null): { url: string; handle: st
 
   return handle ? { url: `https://instagram.com/${handle}`, handle: `@${handle}` } : null;
 }
+
+/**
+ * Link de conversa no WhatsApp, com a mensagem ja escrita.
+ *
+ * O numero sai do cadastro da empresa, digitado a mao ("(11) 91234-5678"), e o
+ * wa.me so aceita digitos com o codigo do pais na frente. A regra do 55 e a
+ * mesma de `toWhatsappNumber` no servidor; esta copia existe porque aquela vive
+ * junto do banco e nao pode ser importada por componente de tela.
+ *
+ * Devolve `null` quando nao ha numero -- e a tela esconde o botao em vez de
+ * oferecer um link que abre uma conversa com ninguem.
+ */
+export function linkWhatsapp(phone: string | null | undefined, message?: string): string | null {
+  const d = (phone ?? '').replace(/\D/g, '');
+  if (d.length < 10) return null;
+  const numero = d.startsWith('55') ? d : `55${d}`;
+  const texto = message ? `?text=${encodeURIComponent(message)}` : '';
+  return `https://wa.me/${numero}${texto}`;
+}

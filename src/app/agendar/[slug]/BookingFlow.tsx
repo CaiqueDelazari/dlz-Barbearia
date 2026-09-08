@@ -5,12 +5,12 @@ import Image from 'next/image';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import {
-  ArrowLeft, Check, ChevronRight, Clock, Instagram, Loader2, MapPin, MapPinned, Package, QrCode,
-  Scissors,
+  ArrowLeft, Check, ChevronDown, ChevronRight, Clock, Instagram, Loader2, MapPin, MapPinned,
+  MessageCircle, Package, QrCode, Scissors,
 } from 'lucide-react';
 import { Calendar } from '@/components/Calendar';
 import { api, ApiClientError, shortMoney } from '@/lib/api-client';
-import { perfilInstagram } from '@/lib/format';
+import { linkWhatsapp, perfilInstagram } from '@/lib/format';
 import { addDays, formatDateLong, humanDuration, todayInTz } from '@/lib/datetime';
 
 // ---------------------------------------------------------------- contratos
@@ -31,6 +31,8 @@ type TenantInfo = {
   name: string;
   address: string | null;
   instagram: string | null;
+  /** Numero da loja: e por ele que o cliente pergunta de um produto. */
+  whatsapp: string | null;
   logoUrl: string | null;
   timezone: string;
 };
@@ -225,6 +227,25 @@ export function BookingFlow({ tenant, services, professionals, products, config 
   const totalAmount = selected.reduce((sum, s) => sum + Number(s.price), 0);
   const servicesParam = selectedIds.join(',');
 
+  // --------------------------------------------------------- profissionais
+  /**
+   * Quem vai atender aparece antes de o cliente escolher a hora.
+   *
+   * Com dois ou mais na equipe existe escolha de verdade, e ela ganha um passo
+   * proprio -- com a foto grande, porque e por ela que o cliente reconhece o
+   * barbeiro de quem gostou.
+   *
+   * Com um so nao ha o que escolher, e um passo inteiro para tocar "continuar"
+   * seria pedagio. Entao a foto vai para o topo do passo de horario: o cliente
+   * ve com quem vai ser atendido no mesmo lugar, sem toque a mais. Quando o
+   * segundo barbeiro entrar no cadastro, o passo de escolha aparece sozinho.
+   */
+  const soloProfessional = professionals.length === 1 ? professionals[0] : null;
+  const podeEscolherProfissional = config.allowProfessionalChoice && professionals.length > 1;
+  const professionalEmFoco = professionalId
+    ? professionals.find((p) => p.id === professionalId) ?? null
+    : soloProfessional;
+
   // ------------------------------------------------------------- calendario
   const loadMonth = useCallback(
     async (targetMonth: string) => {
@@ -282,8 +303,7 @@ export function BookingFlow({ tenant, services, professionals, products, config 
   }
 
   function goToDateTime() {
-    const needsProfessionalStep = config.allowProfessionalChoice && professionals.length > 1;
-    setStep(needsProfessionalStep ? 'professional' : 'datetime');
+    setStep(podeEscolherProfissional ? 'professional' : 'datetime');
   }
 
   const splitComplete = selected.every((s) => splitSlots[s.id]);
@@ -390,8 +410,7 @@ export function BookingFlow({ tenant, services, professionals, products, config 
 
   function goBack() {
     if (step === 'professional') setStep('services');
-    else if (step === 'datetime')
-      setStep(config.allowProfessionalChoice && professionals.length > 1 ? 'professional' : 'services');
+    else if (step === 'datetime') setStep(podeEscolherProfissional ? 'professional' : 'services');
     else if (step === 'contact') setStep('datetime');
     else if (step === 'payment') setStep('contact');
   }
@@ -399,9 +418,12 @@ export function BookingFlow({ tenant, services, professionals, products, config 
   const stepIndex = Math.max(0, STEP_ORDER.indexOf(step === 'professional' ? 'services' : step));
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col">
+    <div className="mx-auto flex screen-min w-full max-w-lg flex-col">
       {/* ---------------------------------------------------------- header */}
-      <header className="sticky top-0 z-20 bg-ink-950/95 backdrop-blur">
+      {/* Fundo solido, sem `backdrop-blur`: o desfoque em elemento grudado e
+          conhecido por piscar e por travar a rolagem no Safari do iPhone, e
+          sobre um fundo quase preto ninguem ve diferenca entre os dois. */}
+      <header className="sticky top-0 z-20 bg-ink-950">
         <div className="flex items-center gap-3 px-5 pb-3 pt-5">
           {step !== 'services' && step !== 'done' ? (
             <button
@@ -495,7 +517,7 @@ export function BookingFlow({ tenant, services, professionals, products, config 
               </nav>
             )}
 
-            {mostrandoVitrine && <Vitrine products={products} />}
+            {mostrandoVitrine && <Vitrine products={products} tenant={tenant} />}
 
             {!mostrandoVitrine && visibleServices.length === 0 && (
               <p className="py-16 text-center text-sm text-ink-400">
@@ -513,7 +535,7 @@ export function BookingFlow({ tenant, services, professionals, products, config 
                       type="button"
                       onClick={() => toggleService(service.id)}
                       aria-pressed={isSelected}
-                      className="flex w-full items-center gap-4 py-4 text-left transition-opacity"
+                      className="flex w-full items-center gap-4 py-4 text-left transition-colors active:bg-ink-900"
                     >
                       <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-ink-850">
                         {service.imageUrl ? (
@@ -565,61 +587,66 @@ export function BookingFlow({ tenant, services, professionals, products, config 
 
         {/* --------------------------------------------------- profissional */}
         {step === 'professional' && (
-          <section className="animate-fade-up divide-y divide-ink-800">
+          <section className="animate-fade-up">
+            {/* A foto vem antes do nome e ocupa 72px: o cliente volta pelo rosto
+                de quem cortou da ultima vez, nao pela grafia do nome. */}
+            <ul className="divide-y divide-ink-800">
+              {professionals.map((professional) => (
+                <li key={professional.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfessionalId(professional.id);
+                      setStep('datetime');
+                    }}
+                    className="flex w-full items-center gap-4 py-4 text-left transition-colors active:bg-ink-900"
+                  >
+                    <Retrato professional={professional} size={72} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[16px] text-ink-100">{professional.name}</span>
+                      {professional.bio && (
+                        <span className="eyebrow mt-1 block truncate normal-case tracking-wider">
+                          {professional.bio}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronRight size={16} strokeWidth={1.5} className="shrink-0 text-ink-500" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            {/* Fica por ultimo e mais discreto: quem nao tem preferencia acha
+                assim mesmo, e quem tem nao passa reto pelo rosto que procura. */}
             <button
               type="button"
               onClick={() => {
                 setProfessionalId(null);
                 setStep('datetime');
               }}
-              className="flex w-full items-center gap-4 py-4 text-left"
+              className="rule mt-2 flex w-full items-center justify-between gap-4 py-4 text-left"
             >
-              <span className="flex h-12 w-12 items-center justify-center rounded-full border border-ink-800 text-[11px] uppercase tracking-wider text-ink-400">
-                —
-              </span>
-              <span className="flex-1">
-                <span className="block text-[15px] text-ink-100">Sem preferência</span>
+              <span>
+                <span className="block text-sm text-ink-300">Tanto faz quem atende</span>
                 <span className="eyebrow mt-1 block normal-case tracking-wider">
                   Mostra todos os horários livres
                 </span>
               </span>
-              <ChevronRight size={16} strokeWidth={1.5} className="text-ink-500" />
+              <ChevronRight size={16} strokeWidth={1.5} className="shrink-0 text-ink-500" />
             </button>
-
-            {professionals.map((professional) => (
-              <button
-                key={professional.id}
-                type="button"
-                onClick={() => {
-                  setProfessionalId(professional.id);
-                  setStep('datetime');
-                }}
-                className="flex w-full items-center gap-4 py-4 text-left"
-              >
-                <span className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-850 text-xs tracking-wider text-ink-300">
-                  {professional.photoUrl ? (
-                    <Image src={professional.photoUrl} alt="" fill sizes="48px" className="object-cover" />
-                  ) : (
-                    initials(professional.name)
-                  )}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] text-ink-100">{professional.name}</span>
-                  {professional.bio && (
-                    <span className="eyebrow mt-1 block truncate normal-case tracking-wider">
-                      {professional.bio}
-                    </span>
-                  )}
-                </span>
-                <ChevronRight size={16} strokeWidth={1.5} className="text-ink-500" />
-              </button>
-            ))}
           </section>
         )}
 
         {/* ------------------------------------------------------ data/hora */}
         {step === 'datetime' && (
           <section className="animate-fade-up space-y-5">
+            {professionalEmFoco && (
+              <QuemAtende
+                professional={professionalEmFoco}
+                onTrocar={podeEscolherProfissional ? () => setStep('professional') : null}
+              />
+            )}
+
             <Calendar
               month={month}
               selected={date}
@@ -918,7 +945,7 @@ export function BookingFlow({ tenant, services, professionals, products, config 
 
       {/* ------------------------------------------------- barra inferior */}
       {['services', 'datetime', 'contact'].includes(step) && (
-        <footer className="safe-bottom sticky bottom-0 z-20 border-t border-ink-800 bg-ink-950/95 px-5 pt-4 backdrop-blur">
+        <footer className="dock-bottom safe-bottom sticky z-20 border-t border-ink-800 bg-ink-950 px-5 pt-4">
           {selected.length > 0 && (
             <div className="mb-3 flex items-baseline justify-between">
               <span className="tnum text-lg text-ink-100">{shortMoney(totalAmount)}</span>
@@ -968,6 +995,69 @@ export function BookingFlow({ tenant, services, professionals, products, config 
 }
 
 // ------------------------------------------------------------ subcomponentes
+/**
+ * Rosto do profissional, redondo. Cai nas iniciais quando ainda não subiram a
+ * foto — um circulo vazio pareceria imagem quebrada.
+ */
+function Retrato({ professional, size }: { professional: Professional; size: number }) {
+  return (
+    <span
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-850 text-sm tracking-wider text-ink-300"
+      style={{ height: size, width: size }}
+    >
+      {professional.photoUrl ? (
+        <Image
+          src={professional.photoUrl}
+          alt=""
+          fill
+          sizes={`${size}px`}
+          className="object-cover"
+        />
+      ) : (
+        initials(professional.name)
+      )}
+    </span>
+  );
+}
+
+/**
+ * "Quem vai te atender", no alto do passo de horário.
+ *
+ * Serve aos dois casos: na barbearia de um só, apresenta — e a foto aparece
+ * antes de escolher a hora, sem custar um passo. Com equipe, confirma a escolha
+ * que acabou de ser feita e deixa desfazer ali mesmo, porque errar o barbeiro
+ * na tela anterior só se descobre aqui.
+ */
+function QuemAtende({
+  professional,
+  onTrocar,
+}: {
+  professional: Professional;
+  onTrocar: (() => void) | null;
+}) {
+  return (
+    <div className="flex items-center gap-4 border-b border-ink-800 pb-5">
+      <Retrato professional={professional} size={56} />
+      <div className="min-w-0 flex-1">
+        <p className="eyebrow">Quem vai te atender</p>
+        <p className="mt-1 truncate text-[15px] text-ink-100">{professional.name}</p>
+        {professional.bio && (
+          <p className="mt-0.5 truncate text-xs text-ink-400">{professional.bio}</p>
+        )}
+      </div>
+      {onTrocar && (
+        <button
+          type="button"
+          onClick={onTrocar}
+          className="eyebrow shrink-0 py-2 underline underline-offset-4"
+        >
+          Trocar
+        </button>
+      )}
+    </div>
+  );
+}
+
 /**
  * Barra de duração: dois ticks e uma hairline mostrando o bloco que os
  * serviços ocupam. É a regra que mais gera dúvida ("por que 14:30 sumiu?"),
@@ -1059,13 +1149,19 @@ function Resumo({
 /**
  * Vitrine: o que o estúdio revende.
  *
- * Não tem botão de adicionar de propósito — foi decidido que aqui é mostruário,
- * não loja. Produto não tem duração e tem estoque, então deixá-lo entrar no
- * agendamento significaria segurar a prateleira por conta de uma reserva que
- * ainda pode expirar. Aqui o cliente descobre que existe; a venda acontece no
- * balcão, onde o estoque baixa de verdade.
+ * Não entra no carrinho de propósito — aqui é mostruário, não loja. Produto não
+ * tem duração e tem estoque, e deixá-lo entrar no agendamento significaria
+ * segurar a prateleira por conta de uma reserva que ainda pode expirar.
+ *
+ * Mas "não vende" não é desculpa para uma lista morta: o cliente tocava no
+ * produto e a tela não respondia, o que se sente como defeito, não como
+ * decisão. Tocar agora abre a descrição e o botão de perguntar pelo WhatsApp
+ * — a venda continua acontecendo no balcão, onde o estoque baixa de verdade,
+ * só que agora ela começa aqui.
  */
-function Vitrine({ products }: { products: Product[] }) {
+function Vitrine({ products, tenant }: { products: Product[]; tenant: TenantInfo }) {
+  const [abertoId, setAbertoId] = useState<string | null>(null);
+
   const grupos = new Map<string, Product[]>();
   for (const product of products) {
     const chave = product.category?.trim() || 'Outros';
@@ -1074,10 +1170,15 @@ function Vitrine({ products }: { products: Product[] }) {
     else grupos.set(chave, [product]);
   }
 
+  const temWhatsapp = Boolean(linkWhatsapp(tenant.whatsapp));
+
   return (
     <div className="animate-fade-up">
       <p className="mb-5 text-center text-xs leading-relaxed text-ink-500">
-        O que usamos e revendemos. Peça no balcão no dia do seu horário.
+        O que usamos e revendemos.{' '}
+        {temWhatsapp
+          ? 'Toque no produto para perguntar pelo WhatsApp.'
+          : 'Toque no produto para ver os detalhes e peça no balcão.'}
       </p>
 
       {[...grupos].map(([categoria, itens]) => (
@@ -1085,32 +1186,82 @@ function Vitrine({ products }: { products: Product[] }) {
           {grupos.size > 1 && <p className="eyebrow mb-2">{categoria}</p>}
 
           <ul className="divide-y divide-ink-800">
-            {itens.map((product) => (
-              <li key={product.id} className="flex items-center gap-4 py-4">
-                <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-ink-850">
-                  {product.imageUrl ? (
-                    <Image src={product.imageUrl} alt="" fill sizes="56px" className="object-cover" />
-                  ) : (
-                    <span className="flex h-full w-full items-center justify-center">
-                      <Package size={17} strokeWidth={1.25} className="text-ink-500" />
-                    </span>
-                  )}
-                </span>
+            {itens.map((product) => {
+              const aberto = abertoId === product.id;
+              const whats = linkWhatsapp(
+                tenant.whatsapp,
+                `Oi! Vi ${product.name}${product.brand ? ` da ${product.brand}` : ''} `
+                  + `(${shortMoney(product.price)}) na página de agendamento da ${tenant.name}. `
+                  + 'Ainda tem?'
+              );
 
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] text-ink-100">{product.name}</span>
-                  {(product.brand || product.description) && (
-                    <span className="eyebrow mt-1 block truncate normal-case tracking-wider text-ink-400">
-                      {product.brand ?? product.description}
+              return (
+                <li key={product.id}>
+                  <button
+                    type="button"
+                    onClick={() => setAbertoId(aberto ? null : product.id)}
+                    aria-expanded={aberto}
+                    className="flex w-full items-center gap-4 py-4 text-left transition-colors active:bg-ink-900"
+                  >
+                    <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-ink-850">
+                      {product.imageUrl ? (
+                        <Image src={product.imageUrl} alt="" fill sizes="56px" className="object-cover" />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center">
+                          <Package size={17} strokeWidth={1.25} className="text-ink-500" />
+                        </span>
+                      )}
                     </span>
-                  )}
-                </span>
 
-                <span className="tnum shrink-0 text-[15px] text-ink-200">
-                  {shortMoney(product.price)}
-                </span>
-              </li>
-            ))}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[15px] text-ink-100">{product.name}</span>
+                      {(product.brand || product.description) && (
+                        <span className="eyebrow mt-1 block truncate normal-case tracking-wider text-ink-400">
+                          {product.brand ?? product.description}
+                        </span>
+                      )}
+                    </span>
+
+                    <span className="tnum shrink-0 text-[15px] text-ink-200">
+                      {shortMoney(product.price)}
+                    </span>
+
+                    {/* A seta é o que diz que a linha responde ao toque. */}
+                    <ChevronDown
+                      size={16}
+                      strokeWidth={1.5}
+                      className={clsx(
+                        'shrink-0 text-ink-500 transition-transform duration-200',
+                        aberto && 'rotate-180 text-ink-300'
+                      )}
+                    />
+                  </button>
+
+                  {aberto && (
+                    <div className="animate-fade-up space-y-3 pb-5 pl-[72px]">
+                      {product.description && (
+                        <p className="text-sm leading-relaxed text-ink-300">{product.description}</p>
+                      )}
+
+                      {whats ? (
+                        <a
+                          href={whats}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="btn-ghost w-full"
+                        >
+                          <MessageCircle size={15} strokeWidth={1.5} /> Perguntar no WhatsApp
+                        </a>
+                      ) : (
+                        <p className="text-xs leading-relaxed text-ink-500">
+                          Peça no balcão no dia do seu horário.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}

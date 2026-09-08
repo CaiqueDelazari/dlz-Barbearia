@@ -49,7 +49,7 @@ export default function SimulatedPaymentPage() {
 
   if (!payment) {
     return (
-      <div className="flex min-h-dvh items-center justify-center text-ink-400">
+      <div className="flex screen-min items-center justify-center text-ink-400">
         <Loader2 className="animate-spin" />
       </div>
     );
@@ -58,7 +58,7 @@ export default function SimulatedPaymentPage() {
   const paid = payment.status === 'paid';
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-4">
+    <div className="mx-auto flex screen-min w-full max-w-md flex-col justify-center px-4">
       <div className="card space-y-5 p-6 text-center">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-ink-850">
           {paid ? <Check size={26} className="text-brand-500" /> : <CreditCard size={24} className="text-ink-300" />}

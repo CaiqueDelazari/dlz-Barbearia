@@ -141,7 +141,7 @@ export function ManageBooking({ token }: { token: string }) {
 
   if (loading) {
     return (
-      <div className="flex min-h-dvh items-center justify-center text-ink-400">
+      <div className="flex screen-min items-center justify-center text-ink-400">
         <Loader2 className="animate-spin" />
       </div>
     );
@@ -149,7 +149,7 @@ export function ManageBooking({ token }: { token: string }) {
 
   if (error || !booking) {
     return (
-      <div className="mx-auto flex min-h-dvh max-w-lg flex-col items-center justify-center gap-3 px-6 text-center">
+      <div className="mx-auto flex screen-min max-w-lg flex-col items-center justify-center gap-3 px-6 text-center">
         <AlertCircle size={36} className="text-state-bad" />
         <p className="text-ink-100">{error}</p>
         <p className="text-sm text-ink-400">
@@ -162,7 +162,7 @@ export function ManageBooking({ token }: { token: string }) {
   const noticeHours = Math.round(booking.policy.rescheduleNoticeMinutes / 60);
 
   return (
-    <div className="mx-auto min-h-dvh w-full max-w-lg px-4 py-6">
+    <div className="mx-auto screen-min w-full max-w-lg px-4 py-6">
       <header className="mb-6 text-center">
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-ink-850">
           <Scissors size={20} className="text-brand-500" />

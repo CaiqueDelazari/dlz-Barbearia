@@ -16,6 +16,39 @@ body {
   font-family: var(--font-sans), system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
+/*
+ * Toque no iOS.
+ *
+ * Sem `touch-action: manipulation` o Safari segura cada toque por ~300ms
+ * esperando um duplo-toque de zoom. Num aparelho lento isso e sentido como
+ * "cliquei e nao aconteceu nada" -- a pessoa toca de novo, e o segundo toque
+ * vira zoom em vez de clique.
+ */
+button,
+a,
+label,
+[role='button'] {
+  touch-action: manipulation;
+}
+
+/*
+ * Campo com fonte abaixo de 16px faz o Safari do iPhone dar zoom sozinho
+ * quando o campo recebe foco. Depois do zoom a pagina fica mais larga que a
+ * janela, o cabecalho grudado sai de vista e a rolagem trava no meio -- o
+ * "nao consigo descer ate o fim" que so acontece no iPhone.
+ *
+ * `!important` porque a regra precisa vencer o `.input` (classe ganha de
+ * seletor de elemento), e `pointer: coarse` para nao inchar os campos do
+ * painel no desktop.
+ */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Horários e valores em colunas: sem numerais tabulares a lista "dança". */
 time,
 .tnum {
@@ -86,9 +119,11 @@ time,
   }
 
   /* ---------------------------------------------------------------- abas */
+  /* `pt-2 pb-3` da altura de dedo a aba: com `pb-2` so, o alvo tinha 18px de
+     altura e errar era o normal no celular. */
   .tab {
-    @apply relative whitespace-nowrap px-1 pb-2 text-[13px] tracking-wide text-ink-400 transition-colors
-           hover:text-ink-200;
+    @apply relative shrink-0 whitespace-nowrap px-1 pb-3 pt-2 text-[13px] tracking-wide text-ink-400
+           transition-colors hover:text-ink-200;
   }
   .tab-active {
     @apply text-ink-100;
@@ -100,8 +135,8 @@ time,
 
   /* ------------------------------------------------------------ horários */
   .slot {
-    @apply rounded-lg border border-ink-800 py-2.5 text-sm text-ink-200 transition-colors tnum
-           hover:border-ink-600 hover:text-ink-100;
+    @apply min-h-[44px] rounded-lg border border-ink-800 py-2.5 text-sm text-ink-200 transition-colors tnum
+           hover:border-ink-600 hover:text-ink-100 active:bg-ink-850;
   }
   .slot-active {
     @apply border-brand-500 bg-brand-500/10 text-ink-100;
@@ -110,6 +145,8 @@ time,
   .scroll-x {
     @apply flex gap-5 overflow-x-auto;
     scrollbar-width: none;
+    /* embalo de rolagem no iOS antigo; nos novos ja e o padrao */
+    -webkit-overflow-scrolling: touch;
   }
   .scroll-x::-webkit-scrollbar {
     display: none;
@@ -124,6 +161,50 @@ time,
 
 .safe-bottom {
   padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+}
+
+/*
+ * Altura de tela que nao se mexe.
+ *
+ * `100dvh` acompanha a barra do Safari aparecendo e sumindo: a cada rolagem a
+ * pagina muda de altura, o conteudo pula debaixo do dedo e o fim da lista
+ * "foge". `100svh` e a menor altura (barra visivel), entao fica parada. O
+ * `100vh` antes atende iOS anterior ao 15.4, que nao conhece `svh`.
+ */
+.screen-min {
+  min-height: 100vh;
+  min-height: 100svh;
+}
+
+/*
+ * Fundo de dialogo colado na janela *visivel*, nao na pagina.
+ *
+ * `fixed inset-0` se prende a janela do documento, que o teclado do iPhone nao
+ * encolhe -- o rodape do dialogo (onde fica "Salvar") ia parar atras do
+ * teclado, sem jeito de alcancar. As variaveis sao escritas por
+ * `ViewportFix` a partir do `visualViewport`; sem JS, os valores padrao caem
+ * exatamente no comportamento antigo.
+ */
+/*
+ * Barra grudada no fim da tela *visivel*.
+ *
+ * `bottom: 0` cola no fim da janela do documento, e no iPhone o documento
+ * corre por baixo da barra de botoes do Safari: o "Continuar" ficava atras
+ * dela, sem rolagem que alcancasse -- a barra some quando se rola para baixo,
+ * e a pagina ja tinha acabado. `--vv-bottom` e a altura do que esta coberto
+ * naquele instante (barra do navegador, ou o teclado quando ele sobe), entao
+ * o botao sobe junto. Sem JS, `0px` reproduz o comportamento antigo.
+ */
+.dock-bottom {
+  bottom: var(--vv-bottom, 0px);
+}
+
+.sheet-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--vv-top, 0px);
+  height: var(--vv-height, 100%);
 }
 
 @media (prefers-reduced-motion: reduce) {

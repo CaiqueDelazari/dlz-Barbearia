@@ -147,8 +147,8 @@ function ClientDrawer({ id, onClose, onChanged }: { id: string; onClose: () => v
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/80 sm:items-center sm:p-4">
-      <div className="flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-2xl border border-ink-800 bg-ink-900 sm:rounded-2xl">
+    <div className="sheet-overlay z-50 flex items-end justify-center bg-ink-950/80 sm:items-center sm:p-4">
+      <div className="flex max-h-full w-full max-w-md flex-col rounded-t-2xl border border-ink-800 bg-ink-900 sm:rounded-2xl">
         <header className="flex items-center justify-between border-b border-ink-800 px-5 py-4">
           <h2 className="text-[15px] font-semibold text-ink-100">Ficha do cliente</h2>
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-800">
@@ -255,7 +255,7 @@ function NewClientDialog({ onClose, onCreated }: { onClose: () => void; onCreate
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 p-4">
+    <div className="sheet-overlay z-50 flex items-center justify-center bg-ink-950/80 p-4">
       <div className="w-full max-w-sm rounded-2xl border border-ink-800 bg-ink-900 p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink-100">Novo cliente</h2>
         <div className="space-y-3">

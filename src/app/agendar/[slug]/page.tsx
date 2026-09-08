@@ -69,6 +69,8 @@ export default async function AgendarPage({ params }: { params: Promise<{ slug: 
         name: tenant.name,
         address: tenant.address,
         instagram: tenant.instagram,
+        // o fixo serve de reserva: muita loja tem um numero so, e ele e o mesmo
+        whatsapp: tenant.whatsapp ?? tenant.phone,
         logoUrl: tenant.logo_url,
         timezone: tenant.timezone,
       }}

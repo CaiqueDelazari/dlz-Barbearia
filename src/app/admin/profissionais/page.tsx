@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { Loader2, Pencil, Plus, UserSquare2, X } from 'lucide-react';
+import { Loader2, Pencil, Plus, User, UserSquare2, X } from 'lucide-react';
 import { api, ApiClientError } from '@/lib/api-client';
 
 type Professional = {
@@ -80,8 +80,15 @@ export default function ProfissionaisPage() {
         <ul className="space-y-2">
           {professionals.map((professional) => (
             <li key={professional.id} className="card flex items-center gap-3 p-4">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ink-800 text-sm font-semibold text-ink-300">
-                {professional.name.slice(0, 2).toUpperCase()}
+              {/* A mesma foto que o cliente ve no agendamento: e daqui que o
+                  dono percebe qual profissional ainda esta sem retrato. */}
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-800 text-sm font-semibold text-ink-300">
+                {professional.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={professional.photoUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  professional.name.slice(0, 2).toUpperCase()
+                )}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
@@ -148,6 +155,8 @@ function ProfessionalDialog({
   });
   const [linked, setLinked] = useState<string[]>(professional?.serviceIds ?? []);
   const [busy, setBusy] = useState(false);
+  // endereco que o navegador nao conseguiu abrir; zera a cada tecla digitada
+  const [fotoQuebrada, setFotoQuebrada] = useState(false);
 
   async function submit() {
     if (!form.name.trim()) return toast.error('Informe o nome');
@@ -176,8 +185,8 @@ function ProfessionalDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/80 sm:items-center sm:p-4">
-      <div className="flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-2xl border border-ink-800 bg-ink-900 sm:rounded-2xl">
+    <div className="sheet-overlay z-50 flex items-end justify-center bg-ink-950/80 sm:items-center sm:p-4">
+      <div className="flex max-h-full w-full max-w-md flex-col rounded-t-2xl border border-ink-800 bg-ink-900 sm:rounded-2xl">
         <header className="flex items-center justify-between border-b border-ink-800 px-5 py-4">
           <h2 className="text-[15px] font-semibold text-ink-100">
             {professional ? 'Editar profissional' : 'Novo profissional'}
@@ -211,14 +220,48 @@ function ProfessionalDialog({
               />
             </div>
           </div>
+          {/*
+            A foto e a primeira coisa que o cliente ve no agendamento, e ate
+            agora ela era uma URL digitada as cegas: um endereco errado so
+            aparecia como circulo vazio na pagina publica, onde ninguem do lado
+            de dentro olha. A previa ao lado do campo responde na hora se o
+            endereco carrega ou nao.
+          */}
           <div>
-            <label className="label">Foto (URL)</label>
-            <input
-              className="input"
-              placeholder="https://..."
-              value={form.photoUrl}
-              onChange={(e) => setForm({ ...form, photoUrl: e.target.value })}
-            />
+            <label className="label" htmlFor="foto-profissional">Foto (URL)</label>
+            <div className="flex items-center gap-3">
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-ink-800 bg-ink-850">
+                {form.photoUrl.trim() && !fotoQuebrada ? (
+                  // <img> cru, e nao next/image: aqui e previa de painel, nao
+                  // vale otimizar uma imagem que muda a cada tecla digitada.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={form.photoUrl.trim()}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    onError={() => setFotoQuebrada(true)}
+                  />
+                ) : (
+                  <User size={18} strokeWidth={1.25} className="text-ink-500" />
+                )}
+              </span>
+              <input
+                id="foto-profissional"
+                className="input"
+                placeholder="https://... ou /riady/riady.jpg"
+                value={form.photoUrl}
+                onChange={(e) => {
+                  setFotoQuebrada(false);
+                  setForm({ ...form, photoUrl: e.target.value });
+                }}
+              />
+            </div>
+            {fotoQuebrada && (
+              <p className="mt-2 text-xs text-state-bad">
+                Não consegui abrir esta imagem. Confira o endereço — assim ela também
+                não vai aparecer na página de agendamento.
+              </p>
+            )}
           </div>
 
           <div>
