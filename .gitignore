@@ -8,3 +8,6 @@ out
 next-env.d.ts
 .vercel
 tsconfig.tsbuildinfo
+
+# pacotes de deploy gerados localmente (ver DEPLOY-CLAUDE.md)
+releases/
