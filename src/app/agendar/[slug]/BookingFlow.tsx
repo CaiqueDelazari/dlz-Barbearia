@@ -304,14 +304,20 @@ export function BookingFlow({ tenant, services, professionals, products, config 
     setDate(null);
     setDay(null);
     setSlot(null);
+    setSplitSlots({});
+    setSplitMode(false);
+    setMonthDays({});
   }
 
-  function escolherProfissional(id: string | null) {
+  function escolherProfissional(id: string) {
     setProfessionalId(id);
     // trocar de barbeiro muda os horarios livres: o dia carregado nao vale mais
     setDate(null);
     setDay(null);
     setSlot(null);
+    setSplitSlots({});
+    setSplitMode(false);
+    setMonthDays({});
     setStep('services');
   }
 
@@ -636,21 +642,6 @@ export function BookingFlow({ tenant, services, professionals, products, config 
               })}
             </ul>
 
-            {/* Fica por ultimo e mais discreto: quem nao tem preferencia acha
-                assim mesmo, e quem tem nao passa reto pelo rosto que procura. */}
-            <button
-              type="button"
-              onClick={() => escolherProfissional(null)}
-              className="rule mt-2 flex w-full items-center justify-between gap-4 py-4 text-left"
-            >
-              <span>
-                <span className="block text-sm text-ink-300">Tanto faz quem atende</span>
-                <span className="eyebrow mt-1 block normal-case tracking-wider">
-                  Mostra todos os horários livres
-                </span>
-              </span>
-              <ChevronRight size={16} strokeWidth={1.5} className="shrink-0 text-ink-500" />
-            </button>
           </section>
         )}
 
