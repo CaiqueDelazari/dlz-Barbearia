@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ok, parseQuery, rateLimit, route, clientIp } from '@/lib/http';
+import { ApiError, ok, parseQuery, rateLimit, route, clientIp } from '@/lib/http';
 import { getTenantBySlug } from '@/server/repositories/tenant.repo';
 import { getDayAvailability, getMonthAvailability } from '@/server/services/availability.service';
 
@@ -33,9 +33,10 @@ export const GET = route(async (req: Request, { params }: { params: Promise<{ sl
     return ok(result);
   }
 
-  if (!q.date) {
-    return ok({ error: 'informe date ou month' }, 400);
-  }
+  // `ok(..., 400)` devolvia `{ data: { error } }` com status de erro: o
+  // api-client procura `error.message`, nao acha, e mostra "Nao foi possivel
+  // completar a acao" no lugar da mensagem que existe aqui.
+  if (!q.date) throw ApiError.badRequest('Informe date ou month');
 
   const result = await getDayAvailability({
     tenantId: tenant.id,

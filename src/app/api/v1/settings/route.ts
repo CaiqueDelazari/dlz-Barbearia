@@ -4,6 +4,7 @@ import { imageUrlSchema } from '@/lib/security';
 import { audit, requireRole } from '@/lib/auth';
 import { query, transaction } from '@/lib/db';
 import { getTenantContext } from '@/server/repositories/tenant.repo';
+import { assertProfissionalDaEmpresa } from '@/server/repositories/professional.repo';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,23 @@ export const GET = route(async (req: Request) => {
 
 const timeRe = /^\d{2}:\d{2}(:\d{2})?$/;
 
+/**
+ * Fuso que o Intl reconhece -- e nada alem disso.
+ *
+ * Todo calculo de agenda passa por `Intl.DateTimeFormat` com este valor, e um
+ * nome invalido nao devolve data errada: lanca `RangeError`. Salvo no banco,
+ * derrubava com 500 a agenda inteira daquela empresa, inclusive a propria tela
+ * de Configuracoes -- ninguem conseguiria voltar atras pelo painel.
+ */
+const fusoValido = (tz: string) => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const schema = z.object({
   tenant: z
     .object({
@@ -41,7 +59,11 @@ const schema = z.object({
       address: z.string().max(300).nullable().optional(),
       logoUrl: imageUrlSchema.nullable().optional(),
       coverUrl: imageUrlSchema.nullable().optional(),
-      timezone: z.string().max(60).optional(),
+      timezone: z
+        .string()
+        .max(60)
+        .refine(fusoValido, 'Fuso horario desconhecido (ex.: America/Sao_Paulo)')
+        .optional(),
     })
     .optional(),
   settings: z
@@ -177,6 +199,18 @@ export const PATCH = route(async (req: Request) => {
     const escopos = (rows: { professionalId?: string | null }[]) => [
       ...new Set(rows.map((r) => r.professionalId ?? null)),
     ];
+
+    /**
+     * Horario e pausa por profissional so aceitam profissional DESTA empresa.
+     *
+     * Mesma historia do agendamento: `professionalId` e' campo de corpo, a FK
+     * aponta so para `professionals(id)` e o INSERT carimba o `tenant_id` da
+     * sessao -- entao o id de fora entrava e ficava gravado apontando para a
+     * equipe de outra loja.
+     */
+    for (const linha of [...(body.hours ?? []), ...(body.breaks ?? [])]) {
+      await assertProfissionalDaEmpresa(session.tenantId, linha.professionalId ?? null);
+    }
 
     if (body.hours) {
       for (const professionalId of escopos(body.hours)) {

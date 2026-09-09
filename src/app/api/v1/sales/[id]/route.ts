@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { clientIp, ok, parseQuery, route } from '@/lib/http';
+import { clientIp, ok, parseQuery, route, uuidParam } from '@/lib/http';
 import { requireAuth, requireRole } from '@/lib/auth';
 import { cancelSale, getSale } from '@/server/services/sale.service';
 
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export const GET = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
-  const sale = await getSale(session.tenantId, (await params).id);
+  const sale = await getSale(session.tenantId, uuidParam((await params).id));
   return ok({ sale });
 });
 
@@ -28,7 +28,7 @@ export const DELETE = route(async (req: Request, { params }: { params: Promise<{
   const sale = await cancelSale({
     tenantId: session.tenantId,
     userId: session.userId,
-    id: (await params).id,
+    id: uuidParam((await params).id),
     reason: reason ?? null,
     ip: clientIp(req),
   });

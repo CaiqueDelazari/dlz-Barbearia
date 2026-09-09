@@ -7,6 +7,27 @@ import toast from 'react-hot-toast';
 import { Loader2, Scissors } from 'lucide-react';
 import { api, ApiClientError } from '@/lib/api-client';
 
+/**
+ * Para onde ir depois de entrar.
+ *
+ * O middleware manda `?next=` com a pagina que a pessoa tentou abrir antes de
+ * ser barrada, e o login ignorava: quem clicava num link direto do painel
+ * caia sempre no Dashboard e tinha que navegar de novo.
+ *
+ * So caminho interno do painel entra. Um `next` sem essa trava aceita
+ * `//site-de-fora.com` -- que o navegador le como outro dominio -- e a pagina
+ * de login vira trampolim para uma copia dela, com a credencial ja digitada.
+ *
+ * Lido de `window.location` no clique, e nao por `useSearchParams`, para a
+ * pagina continuar estatica: ela e' o healthcheck do container justamente por
+ * nao depender de nada.
+ */
+function destinoSeguro(): string {
+  if (typeof window === 'undefined') return '/admin';
+  const alvo = new URLSearchParams(window.location.search).get('next') ?? '';
+  return /^\/admin(\/|$)/.test(alvo) ? alvo : '/admin';
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -24,7 +45,7 @@ export default function LoginPage() {
         password,
         ...(tenant.trim() ? { tenant: tenant.trim() } : {}),
       });
-      router.push('/admin');
+      router.push(destinoSeguro());
       router.refresh();
     } catch (err) {
       if (err instanceof ApiClientError && err.code === 'tenant_required') {

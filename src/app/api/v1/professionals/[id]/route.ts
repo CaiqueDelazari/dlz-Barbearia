@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ApiError, clientIp, ok, parseBody, route } from '@/lib/http';
+import { ApiError, clientIp, ok, parseBody, route, uuidParam } from '@/lib/http';
 import { imageUrlSchema } from '@/lib/security';
 import { audit, requireRole } from '@/lib/auth';
 import { query, queryOne } from '@/lib/db';
@@ -27,7 +27,7 @@ export const PATCH = route(async (req: Request, { params }: { params: Promise<{ 
 
   const before = await queryOne(`SELECT ${SELECT} FROM professionals WHERE tenant_id = $1 AND id = $2`, [
     session.tenantId,
-    (await params).id,
+    uuidParam((await params).id),
   ]);
   if (!before) throw ApiError.notFound('Profissional nao encontrado');
 
@@ -42,7 +42,7 @@ export const PATCH = route(async (req: Request, { params }: { params: Promise<{ 
   };
 
   const sets: string[] = [];
-  const values: unknown[] = [session.tenantId, (await params).id];
+  const values: unknown[] = [session.tenantId, uuidParam((await params).id)];
   for (const [key, column] of Object.entries(map)) {
     const value = (body as Record<string, unknown>)[key];
     if (value !== undefined) {
@@ -61,14 +61,14 @@ export const PATCH = route(async (req: Request, { params }: { params: Promise<{ 
   if (body.serviceIds) {
     await query('DELETE FROM professional_services WHERE tenant_id = $1 AND professional_id = $2', [
       session.tenantId,
-      (await params).id,
+      uuidParam((await params).id),
     ]);
     for (const serviceId of body.serviceIds) {
       await query(
         `INSERT INTO professional_services (tenant_id, professional_id, service_id)
          SELECT $1, $2, $3 WHERE EXISTS (SELECT 1 FROM services WHERE id = $3 AND tenant_id = $1)
          ON CONFLICT DO NOTHING`,
-        [session.tenantId, (await params).id, serviceId]
+        [session.tenantId, uuidParam((await params).id), serviceId]
       );
     }
   }
@@ -78,7 +78,7 @@ export const PATCH = route(async (req: Request, { params }: { params: Promise<{ 
     userId: session.userId,
     action: 'professional.update',
     entity: 'professional',
-    entityId: (await params).id,
+    entityId: uuidParam((await params).id),
     before,
     after: body,
     ip: clientIp(req),
@@ -92,14 +92,14 @@ export const DELETE = route(async (req: Request, { params }: { params: Promise<{
   const session = await requireRole(req, 'ADMIN');
   await query('UPDATE professionals SET active = false WHERE tenant_id = $1 AND id = $2', [
     session.tenantId,
-    (await params).id,
+    uuidParam((await params).id),
   ]);
   await audit({
     tenantId: session.tenantId,
     userId: session.userId,
     action: 'professional.deactivate',
     entity: 'professional',
-    entityId: (await params).id,
+    entityId: uuidParam((await params).id),
     ip: clientIp(req),
   });
   return ok({ deactivated: true });

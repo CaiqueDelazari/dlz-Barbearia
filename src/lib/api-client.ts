@@ -11,7 +11,7 @@ export class ApiClientError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, jaRenovou = false): Promise<T> {
   const res = await fetch(`/api/v1${path}`, {
     ...init,
     headers: {
@@ -31,10 +31,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const error = payload.error;
-    // 401 no painel: a sessao caiu, tenta renovar uma vez antes de desistir
-    if (res.status === 401 && !path.startsWith('/auth/')) {
+    // 401 no painel: a sessao caiu, tenta renovar UMA vez antes de desistir.
+    // O `jaRenovou` nao e' zelo: quando o refresh funciona e a rota continua
+    // devolvendo 401 (o vinculo do usuario mudou, por exemplo), sem ele os dois
+    // se chamam para sempre e a aba trava batendo no servidor.
+    if (res.status === 401 && !jaRenovou && !path.startsWith('/auth/')) {
       const refreshed = await fetch('/api/v1/auth/refresh', { method: 'POST', credentials: 'include' });
-      if (refreshed.ok) return request<T>(path, init);
+      if (refreshed.ok) return request<T>(path, init, true);
     }
     throw new ApiClientError(
       res.status,

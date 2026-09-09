@@ -20,7 +20,23 @@ async function resolveRange(tenantId: string, period?: Partial<Period>) {
   };
 }
 
-export async function getDashboard(tenantId: string, period?: Partial<Period>) {
+/**
+ * Painel inicial.
+ *
+ * `professionalId` restringe a lista de proximos atendimentos a um profissional
+ * -- e' o escopo do STAFF, o mesmo que a Agenda e os Clientes ja aplicam. Sem
+ * ele, `stripFinancials` tirava o dinheiro da tela e deixava passar o que
+ * custa mais caro: nome e telefone dos proximos clientes do salao inteiro,
+ * exatamente a carteira que `listClients` existe para nao entregar.
+ *
+ * Os contadores continuam sendo da loja: "12 agendamentos hoje" e' o movimento
+ * da casa, nao contato de ninguem.
+ */
+export async function getDashboard(
+  tenantId: string,
+  period?: Partial<Period>,
+  professionalId?: string
+) {
   const { from, to, start, end, tz } = await resolveRange(tenantId, period);
   const today = todayInTz(tz);
   const todayStart = zonedToUtc(today, 0, tz);
@@ -80,8 +96,9 @@ export async function getDashboard(tenantId: string, period?: Partial<Period>) {
          JOIN clients c ON c.id = a.client_id
          LEFT JOIN professionals p ON p.id = a.professional_id
         WHERE a.tenant_id = $1 AND a.starts_at >= now() AND a.status IN ('pending','confirmed')
+          AND ($2::uuid IS NULL OR a.professional_id = $2)
         ORDER BY a.starts_at LIMIT 8`,
-      [tenantId]
+      [tenantId, professionalId ?? null]
     ),
     // Produtos vendidos no período, das duas portas: dentro do atendimento (pela
     // data do atendimento) e no balcão sem agendamento (pela data da venda).

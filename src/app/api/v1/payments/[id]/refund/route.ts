@@ -25,7 +25,7 @@ const bodySchema = z.object({
  */
 export const POST = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireRole(req, 'ADMIN');
-  const { id } = paramsSchema.parse(params);
+  const { id } = paramsSchema.parse(await params);
   const body = await parseBody(req, bodySchema);
 
   const resultado = await refundPayment({

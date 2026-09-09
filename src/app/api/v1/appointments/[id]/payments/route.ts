@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { clientIp, ok, parseBody, route } from '@/lib/http';
+import { clientIp, ok, parseBody, route, uuidParam } from '@/lib/http';
 import { requireAuth } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { getAppointment } from '@/server/services/appointment.service';
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 export const GET = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireAuth(req);
-  const appointment = await getAppointment(session.tenantId, (await params).id);
+  const appointment = await getAppointment(session.tenantId, uuidParam((await params).id));
 
   const payments = await query(
     `SELECT id, amount::float8 AS amount, kind, method, status, provider, paid_at, created_at,
@@ -44,13 +44,13 @@ export const POST = route(async (req: Request, { params }: { params: Promise<{ i
 
   await registerManualPayment({
     tenantId: session.tenantId,
-    appointmentId: (await params).id,
+    appointmentId: uuidParam((await params).id),
     amount: body.amount,
     method: body.method,
     userId: session.userId,
     ip: clientIp(req),
   });
 
-  const appointment = await getAppointment(session.tenantId, (await params).id);
+  const appointment = await getAppointment(session.tenantId, uuidParam((await params).id));
   return ok({ appointment }, 201);
 });

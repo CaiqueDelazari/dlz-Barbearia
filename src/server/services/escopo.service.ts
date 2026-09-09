@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { ApiError } from '@/lib/http';
 import type { Session } from '@/lib/auth';
 
 /**
@@ -43,4 +44,18 @@ export function filtroDeProfissional(
   if (escopo === null) return pedido;
   if (escopo === '') return '00000000-0000-0000-0000-000000000000';
   return escopo;
+}
+
+/**
+ * O recurso e' do escopo de quem pediu?
+ *
+ * Filtrar a listagem nao basta: quem tem o id chega direto no recurso. 404 em
+ * vez de 403 para nao confirmar que o id existe.
+ */
+export function assertDentroDoEscopo(
+  escopo: string | null,
+  professionalId: string | null | undefined
+): void {
+  if (escopo === null) return;
+  if (professionalId !== escopo) throw ApiError.notFound();
 }

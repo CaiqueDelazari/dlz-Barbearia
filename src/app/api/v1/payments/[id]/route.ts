@@ -18,7 +18,7 @@ const paramsSchema = z.object({ id: z.string().uuid() });
 export const GET = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   await rateLimit(`payment-status:${clientIp(req)}`, 120, 60_000);
 
-  const { id } = paramsSchema.parse(params);
+  const { id } = paramsSchema.parse(await params);
   const payment = await getPaymentPublic(id);
   return ok({ payment });
 });

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ApiError, clientIp, ok, parseBody, route } from '@/lib/http';
+import { ApiError, clientIp, ok, parseBody, route, uuidParam } from '@/lib/http';
 import { audit, requireAuth } from '@/lib/auth';
 import { query, queryOne } from '@/lib/db';
 import { getClientHistory, normalizePhone } from '@/server/repositories/client.repo';
@@ -19,12 +19,12 @@ export const GET = route(async (req: Request, { params }: { params: Promise<{ id
       `SELECT 1 FROM appointments
         WHERE tenant_id = $1 AND client_id = $2 AND professional_id = $3
         LIMIT 1`,
-      [session.tenantId, (await params).id, escopo || '00000000-0000-0000-0000-000000000000']
+      [session.tenantId, uuidParam((await params).id), escopo || '00000000-0000-0000-0000-000000000000']
     );
     if (atendeu.length === 0) throw ApiError.notFound('Cliente nao encontrado');
   }
 
-  return ok(await getClientHistory(session.tenantId, (await params).id));
+  return ok(await getClientHistory(session.tenantId, uuidParam((await params).id)));
 });
 
 const schema = z.object({
@@ -48,7 +48,7 @@ export const PATCH = route(async (req: Request, { params }: { params: Promise<{ 
   };
 
   const sets: string[] = [];
-  const values: unknown[] = [session.tenantId, (await params).id];
+  const values: unknown[] = [session.tenantId, uuidParam((await params).id)];
   for (const [key, column] of Object.entries(map)) {
     let value = (body as Record<string, unknown>)[key];
     if (value === undefined) continue;
@@ -70,7 +70,7 @@ export const PATCH = route(async (req: Request, { params }: { params: Promise<{ 
     userId: session.userId,
     action: 'client.update',
     entity: 'client',
-    entityId: (await params).id,
+    entityId: uuidParam((await params).id),
     after: body,
     ip: clientIp(req),
   });

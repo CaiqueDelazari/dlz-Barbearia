@@ -11,3 +11,9 @@ tsconfig.tsbuildinfo
 
 # pacotes de deploy gerados localmente (ver DEPLOY-CLAUDE.md)
 releases/
+
+# Anotacao de uma publicacao especifica: traz IP, host e caminho do painel da
+# VPS, e fica presa ao commit que foi ao ar. Fora do git ela continua servindo;
+# dentro, so envelhece e espalha o mapa do servidor. A versao sem endereco mora
+# em deploy/README.md.
+DEPLOY-CLAUDE.md

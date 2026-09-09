@@ -4,7 +4,9 @@ import { audit, requireAuth } from '@/lib/auth';
 import { query, queryOne } from '@/lib/db';
 import { timeToMinutes, utcToZoned, zonedToUtc } from '@/lib/datetime';
 import { getTenantContext } from '@/server/repositories/tenant.repo';
+import { assertProfissionalDaEmpresa } from '@/server/repositories/professional.repo';
 import { setStatus } from '@/server/services/appointment.service';
+import { escopoDeAgenda } from '@/server/services/escopo.service';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,6 +69,23 @@ export const POST = route(async (req: Request) => {
   const { tenant } = await getTenantContext(session.tenantId);
   const tz = tenant.timezone;
 
+  /**
+   * Quem tem escopo fecha a PROPRIA agenda, e so ela.
+   *
+   * Fechar a agenda e' trabalho de barbeiro -- ele tira uma tarde, marca a
+   * folga da semana. O que nao pode e' `professionalId: null`, que fecha para
+   * todo mundo: com `onConflict: "cancel"` junto, um atendente cancelava a
+   * agenda inteira do salao num POST. Forcar o escopo mantem a funcao dele e
+   * tira o alcance que nao era dele; a consulta de conflitos ja filtra por
+   * `professional_id`, entao ele so enxerga e cancela os proprios clientes.
+   */
+  const escopo = await escopoDeAgenda(session);
+  if (escopo === '') {
+    throw ApiError.forbidden('Seu login ainda nao esta ligado a um profissional.');
+  }
+  const professionalId = escopo === null ? body.professionalId ?? null : escopo;
+  await assertProfissionalDaEmpresa(session.tenantId, professionalId);
+
   const allDay = !body.startTime && !body.endTime;
   const lastDate = body.endDate ?? body.date;
   if (lastDate < body.date) throw ApiError.badRequest('A data final é anterior à inicial');
@@ -89,7 +108,7 @@ export const POST = route(async (req: Request) => {
       `INSERT INTO business_breaks (tenant_id, professional_id, weekday, starts_at, ends_at, label)
        VALUES ($1,$2,$3,$4::time,$5::time,$6)
        RETURNING id, weekday, starts_at::text AS "startsAt", ends_at::text AS "endsAt", label`,
-      [session.tenantId, body.professionalId ?? null, weekday, body.startTime, body.endTime, body.reason ?? null]
+      [session.tenantId, professionalId, weekday, body.startTime, body.endTime, body.reason ?? null]
     );
 
     await audit({
@@ -132,7 +151,7 @@ export const POST = route(async (req: Request) => {
         AND a.starts_at < $3 AND a.ends_at > $2
         AND ($4::uuid IS NULL OR a.professional_id = $4)
       ORDER BY a.starts_at`,
-    [session.tenantId, startsAt, endsAt, body.professionalId ?? null]
+    [session.tenantId, startsAt, endsAt, professionalId]
   );
 
   if (conflicts.length && body.onConflict === 'abort') {
@@ -162,7 +181,7 @@ export const POST = route(async (req: Request) => {
                ends_at AS "endsAt", reason, kind`,
     [
       session.tenantId,
-      body.professionalId ?? null,
+      professionalId,
       startsAt,
       endsAt,
       body.reason ?? null,

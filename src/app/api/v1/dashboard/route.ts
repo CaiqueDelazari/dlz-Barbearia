@@ -3,6 +3,7 @@ import { ok, parseQuery, route } from '@/lib/http';
 import { requireAuth } from '@/lib/auth';
 import { getTenantContext } from '@/server/repositories/tenant.repo';
 import { getDashboard, stripFinancials } from '@/server/services/dashboard.service';
+import { escopoDeAgenda, filtroDeProfissional } from '@/server/services/escopo.service';
 import { resolvePeriod } from '@/server/services/period';
 
 export const dynamic = 'force-dynamic';
@@ -17,9 +18,16 @@ export const GET = route(async (req: Request) => {
   const session = await requireAuth(req);
   const q = parseQuery(req, schema);
   const { tenant } = await getTenantContext(session.tenantId);
-  const period = resolvePeriod(q.range ?? "today", tenant.timezone, q.from, q.to);
-  const dashboard = await getDashboard(session.tenantId, period);
+  const period = resolvePeriod(q.range ?? 'today', tenant.timezone, q.from, q.to);
 
-  // STAFF ve a agenda do dia, nao o caixa da empresa
+  // STAFF ve os PROXIMOS dele, nao os do salao: a lista traz nome e telefone.
+  const escopo = await escopoDeAgenda(session);
+  const dashboard = await getDashboard(
+    session.tenantId,
+    period,
+    filtroDeProfissional(escopo, undefined)
+  );
+
+  // ...e nao ve o caixa da empresa
   return ok(session.role === 'STAFF' ? stripFinancials(dashboard) : dashboard);
 });

@@ -8,7 +8,7 @@ import { query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import {
   BASE, Client, agendarPeloPainel, ajustarConfig, criarEmpresa, criarServico, diaUtil,
-  fecharPool, horarios, type Empresa,
+  fecharPool, horarios, listarProfissionais, type Empresa,
 } from '../helpers/e2e';
 
 let alfa: Empresa;
@@ -112,6 +112,40 @@ describe('isolamento entre empresas', () => {
     assert.ok(
       clientes.data.items.every((c: any) => c.name !== 'Cliente da Alfa'),
       'cliente da alfa não pode aparecer na beta'
+    );
+  });
+
+  test('profissional da outra empresa não entra em agendamento', async () => {
+    /**
+     * O caminho era este, e não precisava de sessão nenhuma: a página pública
+     * de agendamento lista os profissionais com id, e o cadastro é aberto.
+     * Bastava criar uma empresa e reservar nela usando o id do barbeiro da
+     * outra — a constraint de horário casava só por `professional_id`, então a
+     * reserva feita aqui ocupava a agenda DELE. A vítima via o painel vazio e
+     * os clientes recebendo "este horário acabou de ser reservado".
+     */
+    const [profissionalAlfa] = await listarProfissionais(alfa);
+    const dia = diaUtil(66);
+    const { slots } = await horarios(beta, dia, [servicoBeta.id]);
+
+    const pelaApiDoPainel = await beta.api.post('/appointments', {
+      items: [{ startsAt: slots[0].startsAt, serviceIds: [servicoBeta.id], professionalId: profissionalAlfa.id }],
+      client: { name: 'Tentativa', phone: '11911113333' },
+    });
+    assert.equal(pelaApiDoPainel.status, 400);
+    assert.equal(pelaApiDoPainel.error?.code, 'professional_not_found');
+
+    const pelaPaginaPublica = await beta.anon.post(`/public/${beta.slug}/appointments`, {
+      items: [{ startsAt: slots[0].startsAt, serviceIds: [servicoBeta.id], professionalId: profissionalAlfa.id }],
+      client: { name: 'Tentativa', phone: '11911114444' },
+    });
+    assert.equal(pelaPaginaPublica.status, 400);
+
+    // e a agenda da alfa continua aberta naquele horário
+    const livres = await horarios(alfa, dia, [servicoAlfa.id]);
+    assert.ok(
+      livres.slots.some((s) => s.startsAt === slots[0].startsAt),
+      'o horário do barbeiro da alfa não pode ser ocupado por reserva de outra empresa'
     );
   });
 
@@ -219,6 +253,42 @@ describe('papéis', () => {
 
     const dono = await alfa.api.get('/dashboard');
     assert.ok('recebido' in dono.data.cards, 'para o dono nada muda');
+  });
+
+  test('STAFF não mexe na agenda do colega nem fecha o salão', async () => {
+    const staff = await usuarioCom(alfa, 'STAFF');
+
+    // O GET já era barrado; o PATCH e o DELETE passavam direto — e cancelar o
+    // cliente de um colega é mais caro do que só ler os dados dele.
+    assert.equal((await staff.get(`/appointments/${agendamentoAlfa}`)).status, 404);
+    assert.equal(
+      (await staff.patch(`/appointments/${agendamentoAlfa}`, { status: 'cancelled' })).status,
+      404
+    );
+    assert.equal((await staff.del(`/appointments/${agendamentoAlfa}`)).status, 404);
+
+    // fechar a agenda "de todo mundo" não é dele: sem vínculo com profissional,
+    // não fecha nem a própria.
+    const fechar = await staff.post('/blocks', {
+      date: diaUtil(70), reason: 'Tentativa', onConflict: 'cancel',
+    });
+    assert.equal(fechar.status, 403);
+
+    // e o agendamento da alfa continua de pé
+    const depois = await alfa.api.get(`/appointments/${agendamentoAlfa}`);
+    assert.equal(depois.data.appointment.status, 'confirmed');
+  });
+
+  test('STAFF não recebe a carteira do salão pelo dashboard', async () => {
+    const staff = await usuarioCom(alfa, 'STAFF');
+    const painel = await staff.get('/dashboard?range=month');
+
+    assert.equal(painel.status, 200);
+    // `proximos` traz nome e telefone: é a mesma carteira que /clients recorta.
+    assert.deepEqual(painel.data.proximos, []);
+
+    const dono = await alfa.api.get('/dashboard?range=month');
+    assert.ok(dono.data.proximos.length > 0, 'para o dono a lista continua vindo');
   });
 
   test('STAFF vende no balcão mas não tira venda do caixa', async () => {

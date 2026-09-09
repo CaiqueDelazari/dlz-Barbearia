@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ok, parseBody, route } from '@/lib/http';
+import { ok, parseBody, route, uuidParam } from '@/lib/http';
 import { audit, requireRole } from '@/lib/auth';
 import { moveStock } from '@/server/services/product.service';
 
@@ -20,7 +20,7 @@ export const POST = route(async (req: Request, { params }: { params: Promise<{ i
   const product = await moveStock({
     tenantId: session.tenantId,
     userId: session.userId,
-    productId: (await params).id,
+    productId: uuidParam((await params).id),
     quantity: body.quantity,
     reason: body.reason ?? 'restock',
     notes: body.notes ?? null,
@@ -31,7 +31,7 @@ export const POST = route(async (req: Request, { params }: { params: Promise<{ i
     userId: session.userId,
     action: 'product.stock',
     entity: 'product',
-    entityId: (await params).id,
+    entityId: uuidParam((await params).id),
     after: body,
   });
 

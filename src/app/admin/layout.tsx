@@ -25,7 +25,7 @@ const NAV = [
   { href: '/admin/profissionais', label: 'Profissionais', icon: UserSquare2, adminOnly: true },
   { href: '/admin/financeiro', label: 'Financeiro', icon: Wallet, adminOnly: true },
   { href: '/admin/relatorios', label: 'Relatórios', icon: BarChart3, adminOnly: true },
-  { href: '/admin/notificacoes', label: 'Notificações', icon: MessageCircle },
+  { href: '/admin/notificacoes', label: 'Notificações', icon: MessageCircle, adminOnly: true },
   { href: '/admin/whatsapp', label: 'WhatsApp', icon: MessageCircle, adminOnly: true },
   { href: '/admin/configuracoes', label: 'Configurações', icon: Settings, adminOnly: true },
 ];

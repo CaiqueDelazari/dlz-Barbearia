@@ -93,6 +93,22 @@ export function parseQuery<T>(req: Request, schema: ZodSchema<T>): T {
   return schema.parse(obj);
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * O `[id]` da URL, conferido antes de virar consulta.
+ *
+ * Sem isto o texto ia cru para um `WHERE id = $1` de coluna uuid, e o Postgres
+ * respondia 22P02 -- que chega aqui como excecao desconhecida e sai como 500
+ * com rastro no log. Um id que nao tem a forma de um id nao e' erro nosso: e'
+ * registro que nao existe, e 404 e' o que ele merece. De quebra, tira do log
+ * de erro qualquer varredura de URL.
+ */
+export function uuidParam(value: string): string {
+  if (!UUID.test(value)) throw ApiError.notFound();
+  return value;
+}
+
 export function clientIp(req: Request): string {
   const h = req.headers;
   return (

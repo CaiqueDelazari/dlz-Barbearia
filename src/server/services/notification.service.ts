@@ -473,7 +473,18 @@ export async function dispatchDueNotifications(
     `UPDATE notifications SET status = 'sending', attempts = attempts + 1
       WHERE id IN (
         SELECT id FROM notifications
-         WHERE status = 'scheduled' AND scheduled_for <= now() AND attempts < 3
+         WHERE attempts < 3
+           AND (
+             (status = 'scheduled' AND scheduled_for <= now())
+             -- Resgate: 'sending' e' um estado de passagem, escrito antes de
+             -- chamar o gateway. Se o processo morre entre a marca e a
+             -- resposta (deploy no meio da rodada, container reiniciado), a
+             -- linha fica 'sending' para sempre e a mensagem some da fila em
+             -- silencio -- ninguem recebe e nada aparece como falha. O envio
+             -- inteiro leva segundos, entao dez minutos parado so acontece
+             -- quando ninguem vai voltar para terminar.
+             OR (status = 'sending' AND updated_at < now() - interval '10 minutes')
+           )
            AND ($2::uuid IS NULL OR tenant_id = $2)
          ORDER BY scheduled_for
          LIMIT $1

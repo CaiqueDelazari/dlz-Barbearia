@@ -37,7 +37,33 @@ export const POST = route(async (req: Request) => {
       WHERE rt.token_hash = $1 AND rt.revoked_at IS NULL AND rt.expires_at > now()`,
     [sha256(provided)]
   );
-  if (!stored) throw ApiError.unauthorized('Sessao expirada. Faca login novamente.');
+  if (!stored) {
+    /**
+     * Token que nao vale mais pode ser sessao velha -- ou copia.
+     *
+     * Como cada uso queima o anterior, um token JA REVOGADO chegando aqui e' um
+     * segundo portador: ou o cookie foi copiado e o dono usou o dele depois, ou
+     * o contrario. Nao da para saber qual dos dois esta batendo na porta, e e'
+     * exatamente por isso que os dois caem: derrubar a familia inteira custa um
+     * login novo a quem e' de casa e tira o acesso de quem nao e'.
+     *
+     * Cair calado (401 e pronto) deixava o ladrao seguir com o token dele, que
+     * continuava valido ate expirar.
+     */
+    const reutilizado = await queryOne<{ user_id: string }>(
+      `SELECT user_id FROM refresh_tokens WHERE token_hash = $1 AND revoked_at IS NOT NULL`,
+      [sha256(provided)]
+    );
+    if (reutilizado) {
+      await query(
+        `UPDATE refresh_tokens SET revoked_at = now()
+          WHERE user_id = $1 AND revoked_at IS NULL`,
+        [reutilizado.user_id]
+      );
+      console.error('[auth] refresh token reutilizado; sessoes do usuario derrubadas:', reutilizado.user_id);
+    }
+    throw ApiError.unauthorized('Sessao expirada. Faca login novamente.');
+  }
 
   const session = {
     userId: stored.user_id,

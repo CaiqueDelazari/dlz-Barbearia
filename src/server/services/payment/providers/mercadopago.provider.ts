@@ -115,7 +115,25 @@ export class MercadoPagoProvider implements PaymentProvider {
   /** Valida a assinatura x-signature antes de olhar o conteudo. */
   private assertSignature(req: Request, dataId: string): void {
     const secret = env.payment.mercadopagoWebhookSecret;
-    if (!secret) return; // sem segredo configurado, seguimos so com a consulta na API
+    if (!secret) {
+      /**
+       * Em producao, sem segredo o webhook nao entra.
+       *
+       * Seguir "so com a consulta na API" protege o STATUS (quem manda e' a
+       * resposta do gateway, nao o corpo recebido), mas nao protege o resto:
+       * o endpoint fica aberto a qualquer um, e cada POST vira uma chamada
+       * autenticada a API do Mercado Pago com o token da loja. Recusar aqui e'
+       * barulhento de proposito -- pagamento chegando e nao sendo confirmado
+       * aparece na hora, enquanto um endpoint aberto nao aparece nunca.
+       *
+       * Fora de producao continua passando: e' o que deixa testar o fluxo com
+       * a sandbox sem ter o segredo configurado.
+       */
+      if (process.env.NODE_ENV === 'production') {
+        throw ApiError.forbidden('MERCADOPAGO_WEBHOOK_SECRET nao configurado');
+      }
+      return;
+    }
 
     const signature = req.headers.get('x-signature') ?? '';
     const requestId = req.headers.get('x-request-id') ?? '';
@@ -146,6 +164,19 @@ export class MercadoPagoProvider implements PaymentProvider {
     const dataId = payload.data?.id ?? url.searchParams.get('data.id') ?? url.searchParams.get('id');
     const type = payload.type ?? url.searchParams.get('type') ?? 'payment';
     if (!dataId || type !== 'payment') return null;
+
+    /**
+     * O id do pagamento no Mercado Pago e' um numero, e aqui ele so pode ser
+     * isso.
+     *
+     * Ele entra montando a URL da consulta (`/v1/payments/${id}`), e o `fetch`
+     * normaliza `..` como qualquer navegador: um `data.id` valendo
+     * `../../v1/users/me` deixava de consultar um pagamento e passava a chamar
+     * outro endpoint do gateway -- com o token da loja no cabecalho e a
+     * resposta gravada em `payment_webhook_events.payload`. Quem escolhe o
+     * caminho e' este arquivo, nao o corpo do POST.
+     */
+    if (!/^\d+$/.test(String(dataId))) return null;
 
     this.assertSignature(req, String(dataId));
 

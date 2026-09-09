@@ -6,6 +6,7 @@ import { todayInTz, utcToZoned } from '@/lib/datetime';
 import type { AppointmentStatus, Service } from '../types';
 import { getTenantContext } from '../repositories/tenant.repo';
 import { upsertClientByPhone } from '../repositories/client.repo';
+import { assertProfissionalDaEmpresa } from '../repositories/professional.repo';
 import {
   assertSlotFree,
   loadAgendaContext,
@@ -79,6 +80,44 @@ async function assertNoOverlapTx(
   }
 }
 
+/**
+ * Devolve para a agenda, dentro da transacao, o hold vencido que ainda ocupa a
+ * faixa -- e devolve os ids para quem chamou derrubar os avisos deles.
+ *
+ * `expireHolds` (o cron) faz isso a cada 5 minutos, e a disponibilidade ja
+ * ignora hold vencido; a constraint `excl_appt_overlap`, nao. Ela olha
+ * `status IN ('pending','confirmed','completed')` e nao tem como olhar
+ * `hold_expires_at` (o predicado de uma constraint precisa ser imutavel, e
+ * `now()` nao e'). O resultado era uma janela de ate cinco minutos em que a
+ * tela mostrava o horario livre e TODA tentativa de reservar batia em 23P01 --
+ * "este horario acabou de ser reservado", para um horario que nao estava
+ * reservado por ninguem.
+ *
+ * Limpar so a faixa pedida, e nao a agenda inteira do profissional, mantem o
+ * efeito colateral do tamanho do problema.
+ */
+async function expirarHoldsNaFaixa(
+  tx: PoolClient,
+  tenantId: string,
+  professionalId: string | null,
+  startsAt: Date,
+  endsAt: Date
+): Promise<string[]> {
+  const vencidos = await tx.query<{ id: string }>(
+    `UPDATE appointments
+        SET status = 'cancelled', cancelled_at = now(),
+            cancelled_reason = 'Reserva expirada (pagamento nao concluido)'
+      WHERE tenant_id = $1
+        AND professional_id IS NOT DISTINCT FROM $2
+        AND status = 'pending'
+        AND hold_expires_at IS NOT NULL AND hold_expires_at < now()
+        AND starts_at < $4 AND ends_at > $3
+      RETURNING id`,
+    [tenantId, professionalId, startsAt, endsAt]
+  );
+  return vencidos.rows.map((r) => r.id);
+}
+
 export async function createBooking(input: CreateBookingInput): Promise<BookingResult> {
   const { tenant, settings } = await getTenantContext(input.tenantId);
   const tz = tenant.timezone;
@@ -121,6 +160,9 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
     }
 
     let professionalId = item.professionalId ?? null;
+    // Antes de qualquer conta de agenda: este profissional e' desta empresa?
+    // Ver `assertProfissionalDaEmpresa` para o que passava sem esta linha.
+    await assertProfissionalDaEmpresa(input.tenantId, professionalId);
     const allowed = await professionalsForServices(input.tenantId, item.serviceIds);
     if (professionalId && allowed && !allowed.has(professionalId)) {
       throw ApiError.badRequest('Este profissional nao realiza todos os servicos selecionados');
@@ -178,6 +220,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
   );
 
   // ------------------------------------------------------------- transacao
+  const holdsExpirados: string[] = [];
   const result = await transaction(async (tx) => {
     const client = await upsertClientByPhone(tx, input.tenantId, {
       id: input.client.id,
@@ -194,6 +237,9 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
 
     for (const [index, r] of resolved.entries()) {
       await lockProfessionalAgenda(tx, input.tenantId, r.professionalId);
+      holdsExpirados.push(
+        ...(await expirarHoldsNaFaixa(tx, input.tenantId, r.professionalId, r.startsAt, r.endsAt))
+      );
       await assertNoOverlapTx(tx, input.tenantId, r.professionalId, r.startsAt, r.endsAt);
 
       const appt = await tx.query<{ id: string }>(
@@ -249,6 +295,13 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
 
     return { bookingGroupId, clientId: client.id, appointments: created };
   });
+
+  // os avisos da reserva que acabou de expirar nao podem sair depois dela
+  for (const id of holdsExpirados) {
+    await cancelScheduledNotifications(input.tenantId, id).catch((err) =>
+      console.error('[notificacao] falha ao limpar aviso de reserva expirada:', err)
+    );
+  }
 
   await audit({
     tenantId: input.tenantId,
@@ -474,6 +527,13 @@ export async function rescheduleAppointment(input: {
   if (Number.isNaN(startsAt.getTime())) throw ApiError.badRequest('Horario invalido');
   const endsAt = new Date(startsAt.getTime() + current.duration_minutes * 60_000);
   const dateStr = utcToZoned(startsAt, tenant.timezone).dateStr;
+
+  // So o que veio no pedido passa pela trava de empresa: o profissional que ja
+  // esta no agendamento e' dado gravado, e pode ter sido desativado desde
+  // entao -- exigir `active` dele impediria de remarcar o cliente dele.
+  if (input.professionalId !== undefined && input.professionalId !== null) {
+    await assertProfissionalDaEmpresa(input.tenantId, input.professionalId);
+  }
   const professionalId = input.professionalId ?? current.professional_id;
 
   const ctx = await loadAgendaContext(input.tenantId, dateStr, dateStr, professionalId);
@@ -487,8 +547,12 @@ export async function rescheduleAppointment(input: {
   );
   assertSlotFree(ctx, professionalId, startsAt, endsAt, dateStr);
 
+  const holdsExpirados: string[] = [];
   await transaction(async (tx) => {
     await lockProfessionalAgenda(tx, input.tenantId, professionalId);
+    holdsExpirados.push(
+      ...(await expirarHoldsNaFaixa(tx, input.tenantId, professionalId, startsAt, endsAt))
+    );
     await assertNoOverlapTx(tx, input.tenantId, professionalId, startsAt, endsAt, input.appointmentId);
     await tx.query(
       `UPDATE appointments
@@ -498,6 +562,12 @@ export async function rescheduleAppointment(input: {
       [input.tenantId, input.appointmentId, startsAt, endsAt, professionalId]
     );
   });
+
+  for (const id of holdsExpirados) {
+    await cancelScheduledNotifications(input.tenantId, id).catch((err) =>
+      console.error('[notificacao] falha ao limpar aviso de reserva expirada:', err)
+    );
+  }
 
   await cancelScheduledNotifications(input.tenantId, input.appointmentId);
   await scheduleAppointmentNotifications(input.tenantId, input.appointmentId, { includeConfirmation: true }).catch(
@@ -539,8 +609,18 @@ export async function cancelByClient(input: {
     : booking.appointments;
   if (!targets.length) throw ApiError.notFound('Agendamento nao encontrado');
 
-  for (const appt of targets) {
-    if (['cancelled', 'completed', 'no_show'].includes(appt.status)) continue;
+  /**
+   * Confere a janela de TODOS antes de cancelar qualquer um.
+   *
+   * Misturado com o cancelamento, o primeiro horario fora do prazo interrompia
+   * o laco no meio: quem tinha corte as 14h e barba as 16h e pedia para
+   * cancelar tudo perdia o das 14h e recebia um erro dizendo que nao deu --
+   * ficando sem saber o que continuava de pe.
+   */
+  const cancelaveis = targets.filter(
+    (appt) => !['cancelled', 'completed', 'no_show'].includes(appt.status)
+  );
+  for (const appt of cancelaveis) {
     const limit = new Date(
       new Date(appt.starts_at).getTime() - settings.minimum_reschedule_notice_minutes * 60_000
     );
@@ -548,6 +628,9 @@ export async function cancelByClient(input: {
       const hours = Math.round(settings.minimum_reschedule_notice_minutes / 60);
       throw ApiError.forbidden(`Cancelamento permitido ate ${hours}h antes do horario.`);
     }
+  }
+
+  for (const appt of cancelaveis) {
     await setStatus({
       tenantId: booking.tenantId,
       appointmentId: appt.id,

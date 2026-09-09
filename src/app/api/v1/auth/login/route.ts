@@ -50,30 +50,45 @@ export const POST = route(async (req: Request) => {
 
   const candidates = users.filter((u) => u.active && u.tenant_active);
 
-  if (candidates.length > 1) {
-    throw ApiError.badRequest(
-      'Este e-mail pertence a mais de uma empresa. Informe o identificador da empresa.',
-      'tenant_required',
-      { tenants: candidates.map((c) => c.tenant_slug) }
-    );
-  }
-
-  const user = candidates[0];
-
   /**
-   * A mensagem ja era a mesma para e-mail inexistente e senha errada, mas o
-   * relogio entregava a diferenca: sem usuario nao havia bcrypt para rodar, e a
-   * resposta voltava em milissegundos. Comparando sempre contra um hash - o do
-   * usuario ou um descartavel - as duas respostas custam o mesmo, e o atacante
-   * deixa de conseguir listar quem tem conta aqui.
+   * A senha vem ANTES de qualquer resposta que fale das empresas.
+   *
+   * O erro `tenant_required` saia com a lista de slugs para quem so tinha
+   * digitado um e-mail -- e' um diretorio: um POST por endereco e o atacante
+   * descobre em quais barbearias aquela pessoa tem conta. O resto desta rota
+   * se esforca para nao confirmar nem que a conta existe (mensagem unica, hash
+   * descartavel para gastar o mesmo tempo), e essa resposta desmanchava tudo.
+   *
+   * Comparando primeiro, a escolha de empresa so aparece para quem ja provou
+   * a senha -- e' informacao de quem e' dono dela, nao de quem chutou o e-mail.
+   *
+   * O `for` em serie, e nao `Promise.all`: bcrypt e' caro de proposito, e o
+   * mesmo e-mail em N empresas quase sempre repete a mesma senha, entao o
+   * caminho comum acerta no primeiro. Sem usuario nenhum, uma comparacao
+   * descartavel mantem o relogio parecido com o de quem existe.
    */
-  const hashParaComparar = user?.password_hash ?? HASH_DESCARTAVEL;
-  const senhaConfere = await verifyPassword(body.password, hashParaComparar);
+  const autenticados: typeof candidates = [];
+  for (const candidato of candidates) {
+    if (await verifyPassword(body.password, candidato.password_hash)) {
+      autenticados.push(candidato);
+    }
+  }
+  if (!candidates.length) await verifyPassword(body.password, HASH_DESCARTAVEL);
 
-  if (!user || !senhaConfere) {
+  if (!autenticados.length) {
     await rateLimit(`login-fail:${ip}`, 5, 5 * 60_000);
     throw ApiError.unauthorized('E-mail ou senha incorretos');
   }
+
+  if (autenticados.length > 1) {
+    throw ApiError.badRequest(
+      'Este e-mail pertence a mais de uma empresa. Informe o identificador da empresa.',
+      'tenant_required',
+      { tenants: autenticados.map((c) => c.tenant_slug) }
+    );
+  }
+
+  const user = autenticados[0];
 
   const session = {
     userId: user.id,

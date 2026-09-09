@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { clientIp, ok, parseBody, rateLimit, route } from '@/lib/http';
+import { ApiError, clientIp, ok, parseBody, rateLimit, route } from '@/lib/http';
 import { getSettings, getTenantById } from '@/server/repositories/tenant.repo';
 import {
   cancelByClient,
@@ -61,7 +61,7 @@ export const PATCH = route(async (req: Request, { params }: { params: Promise<{ 
   const body = await parseBody(req, patchSchema);
 
   const belongs = booking.appointments.some((a) => a.id === body.appointmentId);
-  if (!belongs) return ok({ error: 'Agendamento nao pertence a este link' }, 403);
+  if (!belongs) throw ApiError.forbidden('Este agendamento nao pertence a este link');
 
   const updated = await rescheduleAppointment({
     tenantId: booking.tenantId,
