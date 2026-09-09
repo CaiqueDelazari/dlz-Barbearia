@@ -20,10 +20,20 @@ export function formatPhone(phone: string): string {
   return phone;
 }
 
-/** Numero pronto para o WhatsApp (bot resolve o JID). */
+/**
+ * Numero pronto para o WhatsApp (bot resolve o JID).
+ *
+ * A conta e' pelo TAMANHO, nao pelo prefixo. `normalizePhone` guarda sempre 10
+ * ou 11 digitos (DDD + numero, sem pais), entao qualquer coisa nessa faixa
+ * precisa do 55 na frente -- inclusive quem tem DDD 55, que e' Santa Maria e
+ * Uruguaiana. Decidir por `startsWith('55')` lia o DDD dessa gente como codigo
+ * do pais e mandava a mensagem sem pais nenhum: numero invalido, entrega
+ * silenciosa em nada. Com 12 ou 13 digitos o 55 da frente e' pais de verdade.
+ */
 export function toWhatsappNumber(phone: string): string {
   const d = phone.replace(/\D/g, '');
-  return d.startsWith('55') ? d : `55${d}`;
+  if (d.length >= 12 && d.startsWith('55')) return d;
+  return `55${d}`;
 }
 
 type UpsertInput = { id?: string; name?: string; phone?: string; notes?: string | null };
