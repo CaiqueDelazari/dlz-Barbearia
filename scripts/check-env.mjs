@@ -42,6 +42,9 @@ const {
   PAYMENT_PROVIDER = 'manual',
   MERCADOPAGO_ACCESS_TOKEN = '',
   MERCADOPAGO_WEBHOOK_SECRET = '',
+  PAGARME_SECRET_KEY = '',
+  PAGARME_WEBHOOK_TOKEN = '',
+  PAGARME_BASE_URL = 'https://api.pagar.me/core/v5',
   WHATSAPP_ENABLED = '',
   WHATSAPP_API_URL = '',
   WHATSAPP_TOKEN = '',
@@ -127,10 +130,20 @@ if (PAYMENT_PROVIDER === 'mercadopago') {
     'PAYMENT_PROVIDER=mercadopago sem MERCADOPAGO_WEBHOOK_SECRET: qualquer um poderia ' +
       'avisar que um pagamento foi aprovado.'
   );
+} else if (PAYMENT_PROVIDER === 'pagarme') {
+  exigir(!!PAGARME_SECRET_KEY, 'PAYMENT_PROVIDER=pagarme sem PAGARME_SECRET_KEY.');
+  exigir(
+    !!PAGARME_WEBHOOK_TOKEN,
+    'PAYMENT_PROVIDER=pagarme sem PAGARME_WEBHOOK_TOKEN: o webhook ficaria publico.'
+  );
+  exigir(
+    PAGARME_BASE_URL.startsWith('https://'),
+    'PAGARME_BASE_URL precisa usar https.'
+  );
 } else {
   avisar(
     PAYMENT_PROVIDER === 'manual',
-    `PAYMENT_PROVIDER="${PAYMENT_PROVIDER}" não é reconhecido (use manual ou mercadopago).`
+    `PAYMENT_PROVIDER="${PAYMENT_PROVIDER}" não é reconhecido (use manual, mercadopago ou pagarme).`
   );
 }
 
