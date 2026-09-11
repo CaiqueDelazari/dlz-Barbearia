@@ -13,9 +13,8 @@
  * `notification.service.ts`. Duplicar o texto aqui só criaria duas cópias para
  * manter. Se ele quiser reescrever alguma, a tela de Mensagens grava a dele.
  *
- * Cobrança online fica DESLIGADA (migration 007): a loja nasce em `manual`, que
- * é maquininha e dinheiro. Quando as credenciais da Pagar.me chegarem, é trocar
- * `payment_provider` direto no banco -- o painel não edita essa coluna.
+ * A conta Ton/Stone usa o gateway Pagar.me. As credenciais ficam no ambiente da
+ * VPS; este seed apenas liga o provider para a loja correta.
  */
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
@@ -188,8 +187,8 @@ async function main() {
         min_advance_minutes, max_advance_days, minimum_reschedule_notice_minutes,
         allow_client_cancel, online_payment_required, payment_provider,
         payment_methods, owner_notify_phone, owner_notify_enabled)
-     VALUES ($1, $2, 30, 15, 35, 60, false, false, 'manual',
-             ARRAY['card','cash']::text[], $3, true)`,
+     VALUES ($1, $2, 30, 15, 35, 60, false, true, 'pagarme',
+             ARRAY['pix','card']::text[], $3, true)`,
     [tenantId, SLUG, NEGOCIO.telefone]
   );
 
@@ -256,7 +255,7 @@ async function main() {
   console.log(`  Servicos       : 6 agendaveis + 3 de quimica desativados`);
   console.log(`  Produtos       : ${PRODUTOS.length} pomadas, sem controle de estoque`);
   console.log(`  Agenda         : 15 min de antecedencia, 35 dias a frente, remarcar ate 1h antes`);
-  console.log(`  Pagamento      : manual (maquininha e dinheiro)`);
+  console.log(`  Pagamento      : Ton/Stone via Pagar.me (Pix e cartao)`);
   console.log(`  Avisos da loja : ${NEGOCIO.telefone}\n`);
 
   await client.end();
