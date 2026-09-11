@@ -351,11 +351,14 @@ aviso, não dois: o texto já lista os serviços.
 
 ## 8. Pagamentos
 
-`PaymentProvider` é uma interface. Hoje existem dois:
+`PaymentProvider` é uma interface. Hoje existem três:
 
 - `manual` — checkout simulado, para desenvolver o fluxo inteiro sem gateway;
 - `mercadopago` — Pix (QR + copia e cola) e cartão (Checkout Pro), com validação de
   assinatura `x-signature` e consulta na API antes de acreditar em qualquer status.
+
+- `pagarme` — checkout hospedado para a conta Ton/Stone (Pix ou cartão), com
+  consulta autenticada do pedido antes de confirmar o agendamento.
 
 Trocar de gateway = uma classe nova em `services/payment/providers/` + mudar
 `PAYMENT_PROVIDER`. Nenhuma regra de negócio muda.
