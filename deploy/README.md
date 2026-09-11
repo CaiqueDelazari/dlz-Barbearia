@@ -85,3 +85,25 @@ impede de alcançar a sessão dos outros sistemas que dividem o mesmo bot.
 Antes disso, confira em Configurações o **telefone de avisos**: se ele for o
 mesmo número que você acabou de parear, o aviso de agendamento novo vai cair no
 chat "Mensagem para si" do próprio dono, que é fácil de não ver.
+
+## Pagamento Ton/Stone
+
+O checkout online da conta Ton/Stone usa a API Pagar.me V5. No `.env` da VPS:
+
+```bash
+PAYMENT_PROVIDER=pagarme
+PAGARME_SECRET_KEY=sk_live_...
+PAGARME_WEBHOOK_TOKEN=<valor aleatorio e longo>
+PAGARME_BASE_URL=https://api.pagar.me/core/v5
+```
+
+No painel Pagar.me, cadastre os eventos `order.paid`, `order.payment_failed` e
+`order.canceled` apontando para:
+
+```text
+https://dlzbarbearia.com.br/api/v1/payments/webhook/pagarme?token=<o mesmo PAGARME_WEBHOOK_TOKEN>
+```
+
+O checkout é hospedado pela Pagar.me. CPF e dados do cartão são preenchidos
+lá e não passam por este servidor. O webhook não confia no status recebido:
+antes de confirmar o horário, consulta o pedido diretamente na API autenticada.
