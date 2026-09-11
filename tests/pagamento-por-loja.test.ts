@@ -18,8 +18,9 @@ describe('gateway de pagamento e por loja, nao por deploy', () => {
   let getProviderByName: (n: string) => { name: string } | null;
 
   before(async () => {
-    process.env.PAYMENT_PROVIDER = 'mercadopago';
-    process.env.MERCADOPAGO_ACCESS_TOKEN = 'token-de-teste';
+    process.env.PAYMENT_PROVIDER = 'pagarme';
+    process.env.PAGARME_SECRET_KEY = 'sk_test_token-de-teste';
+    process.env.PAGARME_WEBHOOK_TOKEN = 'webhook-token-de-teste';
     const mod = await import('../src/server/services/payment/payment.service');
     getProviderForSettings = mod.getProviderForSettings;
     getProviderByName = mod.getProviderByName;
@@ -30,17 +31,17 @@ describe('gateway de pagamento e por loja, nao por deploy', () => {
   });
 
   it('loja que contratou usa o gateway', () => {
-    assert.equal(getProviderForSettings({ payment_provider: 'mercadopago' }).name, 'mercadopago');
+    assert.equal(getProviderForSettings({ payment_provider: 'pagarme' }).name, 'pagarme');
   });
 
   it('valor desconhecido nao vira gateway por engano', () => {
-    assert.equal(getProviderForSettings({ payment_provider: 'pagarme' }).name, 'manual');
+    assert.equal(getProviderForSettings({ payment_provider: 'mercadopago' }).name, 'manual');
     assert.equal(getProviderForSettings({ payment_provider: '' }).name, 'manual');
   });
 
   it('webhook so aceita provider que este deploy conhece', () => {
-    assert.equal(getProviderByName('mercadopago')?.name, 'mercadopago');
-    assert.equal(getProviderByName('pagarme'), null);
+    assert.equal(getProviderByName('pagarme')?.name, 'pagarme');
+    assert.equal(getProviderByName('mercadopago'), null);
     assert.equal(getProviderByName('qualquer-coisa'), null);
   });
 
