@@ -2,7 +2,11 @@ import { env } from '@/lib/env';
 import { ApiError } from '@/lib/http';
 import type { CreateChargeInput, CreateChargeResult, PaymentProvider, WebhookResult } from '../provider';
 
-/** Conta Ton/Stone: pagamentos online pela API Pagar.me V5. */
+/**
+ * A conta Ton/Stone recebe pagamentos online pela infraestrutura Pagar.me V5.
+ * Usamos o checkout hospedado: os dados do cartao e o CPF ficam na Pagar.me e
+ * nunca passam pelo nosso servidor.
+ */
 export class PagarmeProvider implements PaymentProvider {
   readonly name = 'pagarme';
 
@@ -28,7 +32,8 @@ export class PagarmeProvider implements PaymentProvider {
     if (!res.ok) {
       const errors = (body as { errors?: Array<{ message?: string }>; message?: string }).errors;
       const message = errors?.map((error) => error.message).filter(Boolean).join('; ')
-        || (body as { message?: string }).message || `erro ${res.status}`;
+        || (body as { message?: string }).message
+        || `erro ${res.status}`;
       throw new ApiError(502, `Falha no gateway Ton/Pagar.me: ${message}`, 'payment_gateway_error');
     }
     return body as T;
@@ -38,7 +43,8 @@ export class PagarmeProvider implements PaymentProvider {
     const expiresAt = new Date(Date.now() + input.expiresInMinutes * 60_000);
     const amount = Math.round(input.amount * 100);
     const method = input.method === 'card' ? 'credit_card' : 'pix';
-    const checkout = await this.call<{ id: string; url: string }>('/paymentlinks', {
+
+    const checkout = await this.call<{ id: string; url: string; status: string }>('/paymentlinks', {
       method: 'POST',
       body: JSON.stringify({
         is_building: false,
@@ -51,19 +57,24 @@ export class PagarmeProvider implements PaymentProvider {
           accepted_payment_methods: [method],
           ...(method === 'pix'
             ? { pix_settings: { expires_in: input.expiresInMinutes * 60 } }
-            : { credit_card_settings: {
-                operation_type: 'auth_and_capture',
-                installments: [{ number: 1, total: amount }],
-              } }),
+            : {
+                credit_card_settings: {
+                  operation_type: 'auth_and_capture',
+                  installments: [{ number: 1, total: amount }],
+                },
+              }),
         },
-        cart_settings: { items: [{
-          name: input.description.slice(0, 128),
-          description: input.description.slice(0, 256),
-          amount,
-          default_quantity: 1,
-        }] },
+        cart_settings: {
+          items: [{
+            name: input.description.slice(0, 128),
+            description: input.description.slice(0, 256),
+            amount,
+            default_quantity: 1,
+          }],
+        },
       }),
     });
+
     return {
       providerPaymentId: checkout.id,
       checkoutUrl: checkout.url,
@@ -85,6 +96,7 @@ export class PagarmeProvider implements PaymentProvider {
 
   async parseWebhook(req: Request, rawBody: string): Promise<WebhookResult | null> {
     this.assertWebhookToken(req);
+
     const payload = JSON.parse(rawBody || '{}') as {
       id?: string;
       type?: string;
@@ -94,20 +106,30 @@ export class PagarmeProvider implements PaymentProvider {
     const orderId = payload.data?.id ?? '';
     if (!eventType.startsWith('order.') || !/^or_[A-Za-z0-9]+$/.test(orderId)) return null;
 
-    // Status, valor e referencia sempre vem da API autenticada, nao do webhook.
-    const order = await this.call<{ id: string; code: string | null; status: string; amount: number }>(
-      `/orders/${orderId}`
-    );
+    // O corpo recebido apenas aponta qual pedido consultar. Status, valor e
+    // referencia interna sempre vem da API autenticada da Pagar.me.
+    const order = await this.call<{
+      id: string;
+      code: string | null;
+      status: string;
+      amount: number;
+    }>(`/orders/${orderId}`);
+
     const statuses: Record<string, WebhookResult['status']> = {
-      paid: 'paid', pending: 'pending', canceled: 'cancelled',
-      cancelled: 'cancelled', failed: 'failed',
+      paid: 'paid',
+      pending: 'pending',
+      canceled: 'cancelled',
+      cancelled: 'cancelled',
+      failed: 'failed',
     };
+    const status = statuses[order.status.toLowerCase()] ?? 'pending';
+
     return {
       externalId: payload.id || `pagarme:${order.id}:${order.status}`,
       eventType,
       providerPaymentId: order.id,
       paymentId: order.code,
-      status: statuses[order.status.toLowerCase()] ?? 'pending',
+      status,
       amount: Number(order.amount) / 100,
       raw: order,
     };
