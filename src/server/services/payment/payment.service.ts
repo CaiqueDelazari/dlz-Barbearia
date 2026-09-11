@@ -8,6 +8,7 @@ import { notifyOwner, scheduleAppointmentNotifications } from '../notification.s
 import type { PaymentProvider } from './provider';
 import { ManualProvider } from './providers/manual.provider';
 import { MercadoPagoProvider } from './providers/mercadopago.provider';
+import { PagarmeProvider } from './providers/pagarme.provider';
 
 /**
  * Gateway de UMA loja.
@@ -29,6 +30,9 @@ import { MercadoPagoProvider } from './providers/mercadopago.provider';
 export function getProviderForSettings(settings: { payment_provider: string }): PaymentProvider {
   if (settings.payment_provider === 'mercadopago' && env.payment.provider === 'mercadopago') {
     return new MercadoPagoProvider();
+  }
+  if (settings.payment_provider === 'pagarme' && env.payment.provider === 'pagarme') {
+    return new PagarmeProvider();
   }
   return new ManualProvider();
 }
@@ -54,6 +58,9 @@ export function getProviderForSettings(settings: { payment_provider: string }): 
 export function getProviderByName(name: string): PaymentProvider | null {
   if (name === 'mercadopago' && env.payment.provider === 'mercadopago') {
     return new MercadoPagoProvider();
+  }
+  if (name === 'pagarme' && env.payment.provider === 'pagarme') {
+    return new PagarmeProvider();
   }
   if (name === 'manual' && process.env.NODE_ENV !== 'production') return new ManualProvider();
   return null;
