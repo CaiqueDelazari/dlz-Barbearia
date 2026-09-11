@@ -6,6 +6,13 @@ function required(name: string, fallback?: string): string {
   return value;
 }
 
+/**
+ * Segredo de desenvolvimento que subiu junto e ninguem trocou e como nao ter
+ * segredo nenhum: quem conhece o valor do repositorio assina o proprio token de
+ * acesso e entra como dono de qualquer empresa. Em producao isto derruba o
+ * processo na primeira requisicao, que e barulhento de proposito - falhar ao
+ * subir e muito melhor do que subir aberto.
+ */
 const SEGREDOS_DE_EXEMPLO = [
   'dev-local-troque-em-producao-4f8a2c1e9b7d6350a1c2',
   'troque-esta-chave-por-uma-aleatoria-de-48-bytes',
@@ -35,8 +42,21 @@ export const env = {
     if (process.env.DATABASE_SSL === 'true') return true;
     return /sslmode=require|neon\.tech|supabase|render\.com|amazonaws/.test(url);
   },
+  /**
+   * Schema onde este sistema mora. Sem a variavel, `public` -- e o app se
+   * comporta exatamente como sempre, o que mantem reversivel quem ja subiu.
+   *
+   * Existe porque um projeto Supabase costuma hospedar mais de um sistema da
+   * DLZ (o Supabase cobra por projeto, e cada loja usa uma fracao do que um
+   * projeto entrega). Dois sistemas em `public` colidem na primeira tabela de
+   * nome repetido -- e `clients`, `payments` e `products` se repetem em todos.
+   *
+   * `SUPABASE_SCHEMA` e' aceito como sinonimo porque e' o nome que os outros
+   * projetos da casa ja usam; ter que lembrar de dois nomes e' como se erra.
+   */
   get dbSchema() {
     const bruto = (process.env.DB_SCHEMA ?? process.env.SUPABASE_SCHEMA ?? 'public').trim();
+    // O nome entra em SQL como identificador, entao nao pode ser texto livre.
     if (!/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(bruto)) {
       throw new Error(
         `DB_SCHEMA invalido: ${JSON.stringify(bruto)}. ` +
