@@ -19,8 +19,11 @@ $EDITOR .env            # senha do barbearia_app, JWT_SECRET, CRON_SECRET, bot
 # 3. autenticar no registro (token com read:packages)
 echo "$GHCR_TOKEN" | docker login ghcr.io -u CaiqueDelazari --password-stdin
 
-# 4. subir
+# 4. baixar a imagem e aplicar as migrations no Supabase "Duda machado"
 docker compose pull
+docker compose run --rm app npm run db:migrate
+
+# 5. subir
 docker compose up -d
 docker compose logs -f app
 ```
@@ -54,17 +57,24 @@ nada. Se aparecer `falhou` no log, o `CRON_SECRET` do `.env` provavelmente não
 
 ## Migrations
 
-O banco **já está migrado** (7 migrations, aplicadas pelo MCP do Supabase). Para
-as próximas, rode da sua máquina pela **conexão direta (5432)**, não pelo pooler
-— DDL não combina com modo transaction:
+O sistema usa o projeto Supabase **Duda machado**, referência
+`nfkttvilzoyfczxmbdpd`, dentro do schema isolado `barbearia`. A imagem inclui o
+runner e as migrations; rode antes da primeira subida e novamente depois de
+atualizações que tragam migrations novas:
 
 ```bash
-DATABASE_URL='postgresql://...@db.levzbjfazivtgklbcphw.supabase.co:5432/postgres' \
-DB_SCHEMA=barbearia npm run db:migrate
+docker compose pull
+docker compose run --rm app npm run db:migrate
 ```
 
-O `barbearia_app` tem privilégio de dado (SELECT/INSERT/UPDATE/DELETE), não de
-DDL. Migration é operação de dono, e é bom que continue sendo.
+Para a primeira migration, use temporariamente no `.env` a conexão do usuário
+`postgres`, obtida em **Supabase -> Connect -> Direct connection**. Depois,
+troque a `DATABASE_URL` pelo usuário restrito usado pela aplicação. A senha
+fica somente no `.env` da VPS e nunca entra no GitHub.
+
+Se a Hostinger não alcançar o endereço direto por IPv6, use a URI de
+**Session pooler** mostrada no mesmo painel do Supabase. Não invente o host do
+pooler: copie a URI exibida para esse projeto.
 
 ## Pareamento do WhatsApp
 
