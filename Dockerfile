@@ -19,6 +19,10 @@ COPY --from=builder /app/node_modules ./node_modules
 RUN npm prune --omit=dev
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
+# Mantem o runner de migrations dentro da imagem. Assim a primeira subida na
+# VPS consegue preparar/atualizar o Supabase sem instalar Node no host.
+COPY --from=builder /app/scripts/migrate.mjs ./scripts/migrate.mjs
+COPY --from=builder /app/database/migrations ./database/migrations
 # `next start` serve o public/ do diretorio de trabalho -- sem esta linha a logo
 # e a foto do cliente respondem 404 em producao, e so em producao.
 COPY --from=builder /app/public ./public
