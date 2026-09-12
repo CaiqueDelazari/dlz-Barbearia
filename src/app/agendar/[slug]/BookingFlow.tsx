@@ -5,8 +5,8 @@ import Image from 'next/image';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import {
-  ArrowLeft, Check, ChevronDown, ChevronRight, Clock, Instagram, Loader2, MapPin, MapPinned,
-  MessageCircle, Package, QrCode, Scissors,
+  ArrowLeft, Check, ChevronDown, ChevronRight, Clock, Copy, Instagram, Loader2, MapPin, MapPinned,
+  MessageCircle, Package, QrCode, Scissors, Share2,
 } from 'lucide-react';
 import { Calendar } from '@/components/Calendar';
 import { api, ApiClientError, shortMoney } from '@/lib/api-client';
@@ -125,6 +125,7 @@ const hhmm = (iso: string, timeZone: string) =>
 
 // ==========================================================================
 export function BookingFlow({ tenant, services, professionals, products, config }: Props) {
+  const publicOrigin = typeof window !== 'undefined' ? window.location.origin : '';
   const today = useMemo(() => todayInTz(tenant.timezone), [tenant.timezone]);
   const maxDate = useMemo(() => addDays(today, config.maxAdvanceDays), [today, config.maxAdvanceDays]);
 
@@ -947,6 +948,29 @@ export function BookingFlow({ tenant, services, professionals, products, config 
             <a href={`/agendamento/${booking.manageToken}`} className="btn-ghost w-full">
               {config.allowClientCancel ? 'Ver, remarcar ou cancelar' : 'Ver ou remarcar'}
             </a>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className="btn-ghost flex items-center justify-center gap-2 text-xs"
+                onClick={async () => {
+                  const url = `${window.location.origin}/agendamento/${booking.manageToken}`;
+                  await navigator.clipboard.writeText(url);
+                  toast.success('Link salvo. Você pode abrir depois para gerenciar o horário.');
+                }}
+              >
+                <Copy size={14} /> Copiar link
+              </button>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(
+                  `Meu link para gerenciar o agendamento na ${tenant.name}: ${publicOrigin}/agendamento/${booking.manageToken}`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-ghost flex items-center justify-center gap-2 text-xs"
+              >
+                <Share2 size={14} /> Salvar no WhatsApp
+              </a>
+            </div>
           </section>
         )}
       </main>
